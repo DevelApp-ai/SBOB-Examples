@@ -1,0 +1,6 @@
+{
+  "type": "module",
+  "name": "sbob-examples-php2shell-harness",
+  "private": true,
+  "comment": "SBOB-EXAMPLES DEMO WATERMARK — scenario B harness scripts. type:module so Node >=22 (type stripping) runs harness/logtest-replay.ts as ESM, mirroring the Software-Bill-of-Behavior repo convention for its scripts/*.ts. No dependencies, nothing is installed."
+}
