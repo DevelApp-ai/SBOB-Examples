@@ -99,7 +99,22 @@ jobs:
             sleep 2
           done
           echo "FAIL: workload container did not become ready"
-          docker logs "$WORKLOAD_CONTAINER" || true
+          docker logs "$WORKLOAD_CONTAINER" 2>&1 | tr -d '\r' > workload-docker.log || true
+          docker exec "$WORKLOAD_CONTAINER" sh -c \
+            'auditctl -s; auditctl -l; ps aux; ss -lntp 2>/dev/null; ls -la /var/log/audit/ 2>&1' \
+            2>&1 | tr -d '\r' > workload-state.log || true
+          echo "--- docker logs ---"; cat workload-docker.log
+          echo "--- workload state ---"; cat workload-state.log
+          # annotation channel: surfaced through the public annotations API
+          for f in workload-docker.log workload-state.log; do
+            [ -f "$f" ] || continue
+            n=0
+            while IFS= read -r line; do
+              n=$((n+1)); [ $n -gt 12 ] && break
+              line=$(printf '%s' "$line" | head -c 600)
+              [ -n "$line" ] && echo "::error title=workload-not-ready::$f: $line"
+            done < "$f"
+          done
           exit 1
 
       - name: Load the SBoB audit fragment into the kernel
@@ -137,6 +152,8 @@ jobs:
           path: |
             docker-build.log
             restart.log
+            workload-docker.log
+            workload-state.log
             telemetry-run/benign.audit
             telemetry-run/drift.audit
             telemetry-run/audit-tail.log
