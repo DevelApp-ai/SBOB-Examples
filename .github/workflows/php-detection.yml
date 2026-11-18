@@ -85,7 +85,7 @@ jobs:
             -t sbob-php2shell:ci \
             scenarios/php2shell
 
-      - name: Run the workload container (privileged: in-container auditd)
+      - name: "Run the workload container (privileged: in-container auditd)"
         run: |
           docker run --privileged -d --name "$WORKLOAD_CONTAINER" sbob-php2shell:ci
           for i in $(seq 1 60); do
