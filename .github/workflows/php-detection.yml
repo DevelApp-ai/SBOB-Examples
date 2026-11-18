@@ -4,15 +4,22 @@ name: php-detection
 #
 # Proves, in one disposable CI environment (TDS §7):
 #   1. the SBoB php-fpm bundle transpiles from the SHA-pinned SBoB repo
-#   2. the four post-exploit behaviors run FOR REAL inside a privileged
-#      php-fpm workload container under the bundle's own audit fragment,
-#      loopback-only stand-ins (TDS §4)
+#   2. the four post-exploit behaviors run FOR REAL inside the php-fpm
+#      workload container under the bundle's own audit fragment, loopback-
+#      only stand-ins (TDS §4)
 #   3. the capture is faithful and safe (parity checker)
 #   4. the recorded corpus replays identically to the proven Stage 1
 #      (parity leg, scripts from the pinned SBoB repo)
 #   5. the LIVE-captured telemetry replays green: benign silent (incl.
 #      sustained children), drift fires 100111/100121/100131/100163 and the
 #      sustained children 100112/100122/100132 via the logtest API
+#
+# Observer model: GitHub-hosted runner containers cannot hold the audit
+# netlink (in-container auditctl returns EPERM even under --privileged —
+# proven live in this lane's development). auditd therefore runs ON THE
+# NODE and the node audit log is bind-mounted read-only into the workload
+# container — the same deployment model as production SBoB: the agent
+# (auditd) observes the node, the workload runs in a container.
 #
 # The lane uses expected-verdict assertions and fails loudly with
 # diagnostics; it is never left permanently red (TDS §7).
@@ -63,24 +70,22 @@ jobs:
         with:
           node-version: 22
 
-      - name: Probe the runner host audit subsystem (observer strategy diagnostic)
+      - name: Start the node-side audit observer (auditd on the CI node)
         run: |
+          # GitHub-hosted runner containers cannot hold the audit netlink
+          # (in-container auditctl returns EPERM even under --privileged;
+          # proven in this lane's diagnostics). The observer therefore runs
+          # ON THE NODE — which is also the production SBoB deployment
+          # model: auditd on the node observes the containerized workload.
           echo "--- /proc/cmdline ---"; cat /proc/cmdline
-          echo "--- kernel audit sysctls ---"
-          echo "/proc/sys/kernel/audit_enabled = $(cat /proc/sys/kernel/audit_enabled 2>&1)"
-          ls /proc/sys/kernel/ | grep -i audit || echo "(no audit sysctls: kernel audit not compiled in)"
           sudo apt-get update -qq >/dev/null 2>&1 || true
           sudo apt-get install -y -qq auditd >/dev/null 2>&1 || true
           sudo service auditd start >/dev/null 2>&1 || sudo auditd || true
           sleep 1
-          echo "--- auditctl -s (runner host) ---"; sudo auditctl -s 2>&1 || true
-          echo "--- auditctl -l (runner host) ---"; sudo auditctl -l 2>&1 || true
-          echo "--- host audit.log ---"; sudo tail -5 /var/log/audit/audit.log 2>&1 || true
-          # annotation channel (public annotations API): the strategy facts
-          echo "::error title=host-audit-probe::cmdline $(cat /proc/cmdline)"
-          echo "::error title=host-audit-probe::audit_enabled=$(cat /proc/sys/kernel/audit_enabled 2>&1)"
-          echo "::error title=host-audit-probe::auditctl-s $(sudo auditctl -s 2>&1 | tr '\n' '|' | head -c 500)"
-          echo "::error title=host-audit-probe::auditctl-l $(sudo auditctl -l 2>&1 | tr '\n' '|' | head -c 500)"
+          echo "--- auditctl -s (node) ---"; sudo auditctl -s 2>&1 || true
+          echo "--- auditctl -l (node) ---"; sudo auditctl -l 2>&1 || true
+          sudo auditctl -l >/dev/null 2>&1 || { echo "FAIL: node auditctl not functional"; exit 1; }
+          echo "OK: node-side auditd is the observer"
 
       - name: Transpile the php-fpm bundle (SHA-pinned SBoB toolchain)
         run: |
@@ -105,14 +110,15 @@ jobs:
             -t sbob-php2shell:ci \
             scenarios/php2shell 2>&1 | tee docker-build.log
 
-      - name: "Run the workload container (privileged: in-container auditd)"
+      - name: "Run the workload container (NET_ADMIN + node audit log mounted read-only)"
         run: |
-          docker run --privileged -d --name "$WORKLOAD_CONTAINER" sbob-php2shell:ci
+          docker run --cap-add=NET_ADMIN \
+            -v /var/log/audit:/host-audit:ro \
+            -d --name "$WORKLOAD_CONTAINER" sbob-php2shell:ci
           for i in $(seq 1 60); do
             if docker exec "$WORKLOAD_CONTAINER" \
                  bash -c '(exec 3<>/dev/tcp/127.0.0.1/9000) 2>/dev/null' 2>/dev/null; then
               echo "workload ready (php-fpm accepting on 9000)"
-              docker exec "$WORKLOAD_CONTAINER" auditctl -l || true
               exit 0
             fi
             sleep 2
@@ -120,7 +126,7 @@ jobs:
           echo "FAIL: workload container did not become ready"
           docker logs "$WORKLOAD_CONTAINER" 2>&1 | tr -d '\r' > workload-docker.log || true
           docker exec "$WORKLOAD_CONTAINER" sh -c \
-            'auditctl -s; auditctl -l; ps aux; ss -lntp 2>/dev/null; ls -la /var/log/audit/ 2>&1' \
+            'ps aux; ss -lntp 2>/dev/null; ls -la /host-audit/ 2>&1; ip addr show lo 2>&1' \
             2>&1 | tr -d '\r' > workload-state.log || true
           echo "--- docker logs ---"; cat workload-docker.log
           echo "--- workload state ---"; cat workload-state.log
@@ -136,23 +142,23 @@ jobs:
           done
           exit 1
 
-      - name: Load the SBoB audit fragment into the kernel
+      - name: Load the SBoB audit fragment into the node kernel
         run: |
-          docker cp dist/php/wazuh/audit/sbob/php-fpm.rules "$WORKLOAD_CONTAINER:/opt/audit.rules"
-          docker exec "$WORKLOAD_CONTAINER" auditctl -R /opt/audit.rules
-          echo "--- loaded rules ---"
-          docker exec "$WORKLOAD_CONTAINER" auditctl -l
+          sudo auditctl -D 2>/dev/null || true
+          sudo auditctl -R dist/php/wazuh/audit/sbob/php-fpm.rules
+          echo "--- loaded rules (node) ---"
+          sudo auditctl -l
 
       - name: Run the benign + post-exploit request flows and capture the windows
         run: |
           set -o pipefail
-          docker exec "$WORKLOAD_CONTAINER" bash /opt/harness/run-behaviors.sh 2>&1 | tee workload-run.log
+          docker exec -e AUDIT_LOG=/host-audit/audit.log "$WORKLOAD_CONTAINER" \
+            bash /opt/harness/run-behaviors.sh 2>&1 | tee workload-run.log
           mkdir -p telemetry-run
           docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/benign.audit" telemetry-run/benign.audit
           docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/drift.audit" telemetry-run/drift.audit
-          docker exec "$WORKLOAD_CONTAINER" sh -c \
-            'grep -E "^(type=SYSCALL|type=EXECVE|type=PATH|type=SOCKADDR)" /var/log/audit/audit.log | tail -200' \
-            > telemetry-run/audit-tail.log || true
+          sudo grep -E "^(type=SYSCALL|type=EXECVE|type=PATH|type=SOCKADDR)" /var/log/audit/audit.log \
+            | tail -200 > telemetry-run/audit-tail.log || true
           echo "--- benign window ---"; cat telemetry-run/benign.audit
           echo "--- drift window ---"; cat telemetry-run/drift.audit
 
@@ -313,11 +319,11 @@ jobs:
             echo "--- workload container ---"
             docker ps -a 2>&1 | sed -n 1,20p || true
             docker logs --tail 80 "$WORKLOAD_CONTAINER" 2>&1 || true
-            echo "--- auditctl ---"
-            docker exec "$WORKLOAD_CONTAINER" auditctl -l 2>&1 || true
-            docker exec "$WORKLOAD_CONTAINER" auditctl -s 2>&1 || true
-            echo "--- audit log tail ---"
-            docker exec "$WORKLOAD_CONTAINER" sh -c 'tail -80 /var/log/audit/audit.log' 2>&1 || true
+            echo "--- node auditctl ---"
+            sudo auditctl -l 2>&1 || true
+            sudo auditctl -s 2>&1 || true
+            echo "--- node audit log tail ---"
+            sudo tail -80 /var/log/audit/audit.log 2>&1 || true
             echo "--- manager ossec.log tail ---"
             docker exec "$WAZUH_CONTAINER" sh -c 'tail -40 /var/ossec/logs/ossec.log' 2>&1 || true
             echo "--- gate logs ---"
@@ -326,7 +332,7 @@ jobs:
             done
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY" || true
-          # annotation channel: surface the first failure line
+          # annotation channel (public annotations API): failure lines + window tails
           for f in workload-run.log parity-check.log corpus-gate.log api-gate.log live-benign-gate.log live-drift-gate.log; do
             if [ -f "$f" ]; then
               line=$(grep -m1 -E "FAIL:|ERROR:" "$f" || true)
@@ -335,4 +341,13 @@ jobs:
                 break
               fi
             fi
+          done
+          for f in telemetry-run/benign.audit telemetry-run/drift.audit telemetry-run/audit-tail.log; do
+            [ -f "$f" ] || continue
+            n=0
+            while IFS= read -r line; do
+              n=$((n+1)); [ $n -gt 14 ] && break
+              line=$(printf '%s' "$line" | head -c 600)
+              [ -n "$line" ] && echo "::error title=window-tail::$f: $line"
+            done < <(tail -20 "$f")
           done

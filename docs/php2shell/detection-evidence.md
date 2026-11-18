@@ -37,11 +37,12 @@ logtest session. Running the upstream scripts unmodified from the pinned SHA
 is the parity claim.
 
 **Leg 2 — live-captured telemetry (the M6 contribution).** The four
-post-exploit behaviors run for real in a privileged php-fpm container under
+post-exploit behaviors run for real in the php-fpm workload container under
 the bundle's own generated audit fragment; the kernel-observed windows are
 captured (`harness/capture-window.sh`), parity- and safety-checked
 (`harness/check_capture.py`), and replayed through the same logtest API
-(`harness/logtest-replay.ts`).
+(`harness/logtest-replay.ts`). The observer runs node-side (auditd on the
+CI node, its log bind-mounted read-only into the container) — see delta 6.
 
 | # | Live behavior (in-worker, executed for real) | Rule | Live verdict |
 |---|---|---|---|
@@ -85,6 +86,16 @@ committed as findings, not papered over:
    (SYSCALL/EXECVE/PATH/SOCKADDR); CWD/PROCTITLE records are dropped. Live
    SYSCALL records also carry argument-pointer fields the synthetic corpus
    omits on some lines — the decoder chain is unaffected.
+6. **The observer runs node-side, not in-container.** GitHub-hosted runner
+   containers cannot hold the audit netlink: in-container `auditctl`
+   returns EPERM even under `--privileged`, and in-container `auditd` fails
+   to start (proven live while developing this lane). The lane therefore
+   runs auditd on the CI node, loads the SBoB-generated fragment with node
+   `auditctl -R`, and bind-mounts the node audit log read-only into the
+   workload container. This is not a compromise: it is exactly the
+   production SBoB deployment model, where the agent observes the node and
+   the workload runs in a container — the recorded corpus represents the
+   same node-level vantage point.
 
 ## Safety boundary (TDS §4, asserted twice per run)
 

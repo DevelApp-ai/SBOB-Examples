@@ -20,31 +20,18 @@ echo "[entrypoint] 2. stand-in listeners (root; never inside capture windows: th
 socat TCP-LISTEN:11211,bind=10.96.100.10,fork /dev/null &
 socat TCP-LISTEN:4444,bind=127.0.0.1,fork /dev/null &
 
-echo "[entrypoint] 3. auditd"
+echo "[entrypoint] 3. auditd (OPTIONAL: only for self-hosted runners where the in-container observer works; GitHub-hosted runner containers cannot hold the audit netlink, so the CI lane runs auditd node-side and mounts /host-audit read-only — this container just reads it)"
 if ! service auditd start; then
-  echo "[entrypoint] service auditd start failed, trying the daemon directly"
   if ! auditd; then
-    echo "[entrypoint] auditd daemonize failed, trying foreground mode"
-    auditd --foreground &
+    auditd --foreground > /tmp/auditd-fg.log 2>&1 &
   fi
 fi
 sleep 1
-if ! auditctl -l >/dev/null 2>&1; then
-  echo "FAIL: auditctl not functional — dumping diagnostics:" >&2
-  echo "--- auditctl -s ---"; auditctl -s 2>&1 || true
-  echo "--- auditctl -l ---"; auditctl -l 2>&1 || true
-  echo "--- /proc/cmdline ---"; cat /proc/cmdline 2>&1 || true
-  echo "--- audit sysctls ---"; ls /proc/sys/kernel/ | grep -i audit || echo "(none)"
-  echo "--- direct auditd attempt (captured) ---"
-  auditd --foreground > /tmp/auditd-fg.log 2>&1 &
-  fgpid=$!
-  sleep 2
-  cat /tmp/auditd-fg.log 2>&1 || true
-  kill $fgpid 2>/dev/null || true
-  echo "--- audit log dir ---"; ls -la /var/log/audit/ 2>&1 || true
-  exit 1
+if auditctl -l >/dev/null 2>&1; then
+  echo "[entrypoint] in-container auditd functional (self-hosted observer mode)"
+else
+  echo "[entrypoint] in-container auditd not functional — node-side observer expected (/host-audit mounted read-only by the lane)"
 fi
-auditctl -l || true
 
 echo "[entrypoint] 4. php-fpm master (workers as www-data, uid 33)"
 php-fpm --nodaemonize --fpm-config /usr/local/etc/php-fpm.conf &
@@ -54,8 +41,13 @@ for i in $(seq 1 60); do
   if (exec 3<>/dev/tcp/127.0.0.1/9000) 2>/dev/null; then
     exec 3>&- 3<&- || true
     echo "[entrypoint] php-fpm ready"
-    touch /var/log/audit/audit.log
-    exec tail -f /var/log/audit/audit.log
+    # stay alive; prefer tailing the node audit log through the read-only
+    # mount (also keeps it flushed in the container's view), fall back to
+    # /dev/null when the lane runs the observer node-side unmounted
+    if [ -f /host-audit/audit.log ]; then
+      exec tail -f /host-audit/audit.log
+    fi
+    exec tail -f /dev/null
   fi
   sleep 0.5
 done

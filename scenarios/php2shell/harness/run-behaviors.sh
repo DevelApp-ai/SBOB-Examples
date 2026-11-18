@@ -33,9 +33,6 @@ fcgi() { # $1 = script basename under /var/www/html
 # fresh state: no leftover session files, webshell or pwn marker
 rm -f /var/lib/php/sessions/sess_* /var/tmp/.php2shell.php /var/tmp/.pwned
 
-echo "[harness] audit rules loaded:"
-auditctl -l || true
-
 echo "[harness] warm-up request (outside all windows)"
 fcgi benign.php >/dev/null
 

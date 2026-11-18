@@ -15,7 +15,11 @@
 ARG PHP_IMAGE=php:8.3-fpm
 FROM ${PHP_IMAGE}
 
-# auditd        : kernel-level observer; needs the container to run --privileged
+# auditd        : observer for self-hosted nodes where in-container auditd works;
+#                 on GitHub-hosted runners the lane runs auditd node-side and
+#                 mounts the node audit log read-only (/host-audit) — see
+#                 workload/CONTRACT.md (EPERM proven live for the netlink in
+#                 containers on those runners, even under --privileged)
 # socat         : stand-in listeners (declared memcache peer + loopback C2)
 # libfcgi-bin   : cgi-fcgi, the fastcgi client stand-in for the declared nginx ingress
 # iproute2      : `ip addr add` for the loopback-local declared-peer alias

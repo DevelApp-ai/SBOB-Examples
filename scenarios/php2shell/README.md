@@ -51,13 +51,11 @@ kernel, and replayed against the transpiled detection stack.
 ## How to run
 
 ```sh
-# locally (assumes docker; privileged is required for in-container auditd):
+# locally (assumes docker; the observer is node-side — see workload/CONTRACT.md):
 docker build -f scenarios/php2shell/workload/Dockerfile -t sbob-php2shell:local scenarios/php2shell
-docker run --privileged -d --name sbob-php sbob-php2shell:local
-# transpile the SBoB bundle (pinned repo checkout) and load its audit fragment:
-docker cp dist/php/wazuh/audit/sbob/php-fpm.rules sbob-php:/opt/audit.rules
-docker exec sbob-php auditctl -R /opt/audit.rules
-docker exec sbob-php bash /opt/harness/run-behaviors.sh
+sudo auditctl -R dist/php/wazuh/audit/sbob/php-fpm.rules   # node kernel, node auditd
+docker run --cap-add=NET_ADMIN -v /var/log/audit:/host-audit:ro -d --name sbob-php sbob-php2shell:local
+docker exec -e AUDIT_LOG=/host-audit/audit.log sbob-php bash /opt/harness/run-behaviors.sh
 ```
 
 The full flow (transpile → workload capture → containerized wazuh-manager →

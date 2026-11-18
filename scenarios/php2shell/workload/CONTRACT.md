@@ -22,10 +22,17 @@ carries.
 
 ## Privilege note
 
-The container must run `--privileged`: in-container `auditd` needs
-`CAP_AUDIT_CONTROL` to load the SBoB-generated audit fragment, and the `lo`
-alias needs `NET_ADMIN`. The audit rules are kernel-wide for the lifetime of
-the CI job only, on a recycled runner node; the exe-scoped rules cannot fire
-for anything outside this container, and node-scoped signature keys are
-attributed to the workload by uid in the capture (see
-`scenarios/php2shell/telemetry/README.md`).
+The container needs `NET_ADMIN` for the `lo` alias (the loopback-local
+declared-peer stand-in). The audit observer runs **node-side**:
+GitHub-hosted runner containers cannot hold the audit netlink (in-container
+`auditctl` returns EPERM even under `--privileged`), so the CI lane runs
+auditd on the runner node, loads the SBoB-generated audit fragment with
+node `auditctl -R`, and bind-mounts `/var/log/audit` read-only into the
+container as `/host-audit`. This is the production SBoB deployment model:
+the agent observes the node, the workload runs in a container. The audit
+rules are kernel-wide for the lifetime of the CI job only, on a recycled
+runner node; the exe-scoped rules cannot fire for anything outside this
+container, and node-scoped signature keys are attributed to the workload by
+uid in the capture (see `scenarios/php2shell/telemetry/README.md`). On a
+self-hosted node where in-container auditd works, the image retains auditd
+and the entrypoint will use it (self-hosted observer mode).
