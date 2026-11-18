@@ -1,6 +1,6 @@
 # TDS: SBOB-Examples — the agent-framework compromise, replayed against SBoB
 
-**Status:** v1.0 (2026-11-18)
+**Status:** v1.1 (2026-11-18; v1.1 adds upstream corpus provenance, Lars's call)
 **Repo:** DevelApp-ai/SBOB-Examples (public)
 **Spec owner:** Lars. **Delivery:** org decisions #26–#29 (squash merges, agents
 merge their own PRs when green with their own tests). Milestones tracked as
@@ -114,6 +114,11 @@ scenario/
     v1.26.2/   af_runtime_diag.pth + af_runtime_diag.py (init byte-clean)
   sink/        loopback HTTP sink; asserts payload shape; logs receipt
   fixtures/    synthetic HOME tree: .azure/, .npmrc, .netrc, .docker/, .env ...
+upstream/
+  corpus-1.26.0/   vendored microsoft/agent-framework pytest corpus at tag
+                   python-1.26.0 (MIT; attribution headers preserved)
+  ATTRIBUTION.md   upstream source, tag, resolved commit SHA, license,
+                   vendoring scope
 sbobs/
   versions/    generated, committed profiles: 1.26.0 / 1.26.1 / 1.26.2
   workload/    the consumer workload profile (Python CI runner using the pkg)
@@ -140,8 +145,26 @@ milestone's claim ships with it. Issues M1–M5 track acceptance.
   watermark headers present.
 
 ### M2: supply-chain diff gate (layer 1)
-- Generate profiles for all three versions from their committed pytest
-  corpora (SBOB-Forge action, SHA-pinned; binary mode preferred).
+- **Baseline profile from the real upstream tests** (Lars's call, chat
+  2026-11-18): the 1.26.0 baseline profile is generated from
+  microsoft/agent-framework's own committed pytest corpus, vendored under
+  `upstream/corpus-1.26.0/` from tag `python-1.26.0` (MIT; attribution
+  and license preserved). The first lane run resolves and records the tag's
+  commit SHA in `upstream/ATTRIBUTION.md`; afterwards the lane pins that
+  SHA and byte-verifies the vendored copy against it (the .github
+  template-sync pattern). Maximum realism: the clean baseline is derived
+  from upstream's own suite, exactly what a consumer-side gate consumes.
+- **Candidate profiles** for the reconstructed 1.26.1/1.26.2 package trees
+  are generated from the same corpus, **extended, never skipped** (org scope
+  rule): watermarked pytest tests exercising the attacker's new top-level
+  hook modules (`import agent_framework_meta` / `af_runtime_diag`) so
+  the generator attributes the new opens/egress to the candidate package.
+- **Fail-closed provenance note** (documented in the evidence doc): a real
+  consumer gate would already refuse 1.26.1/1.26.2 at the corpus level:
+  wheel-only, no sdist and no matching tag means no comparable corpus can
+  be pinned, so no candidate profile can be generated or trusted. The demo
+  reconstructs the package source to run the deeper behavior-diff layer
+  anyway; both refusals are part of the story.
 - Lane `supply-chain-gate.yml`: consumer shape. `sbobctl diff` old=1.26.0
   new=1.26.1, and old=1.26.0 new=1.26.2, each asserting **verdict MANDATORY,
   exit 1**; control diff (clean vs clean) asserting **verdict none, exit 0**.
@@ -149,7 +172,8 @@ milestone's claim ships with it. Issues M1–M5 track acceptance.
 - **Accept:** lane green asserting expected verdicts (no permanently red
   lane); `docs/supply-chain-evidence.md` maps each delta row to the scoring
   ladder classes (capabilities +5, exec outside namespace +4, external DNS +3,
-  widened wildcard +2, removed +1).
+  widened wildcard +2, removed +1); vendored corpus byte-verified against the
+  pinned upstream SHA; ATTRIBUTION.md carries tag + SHA + license.
 
 ### M3: runtime detection (layer 2)
 - Commit the consumer workload profile (a Python CI runner using the
@@ -188,6 +212,9 @@ milestone's claim ships with it. Issues M1–M5 track acceptance.
   PRs).
 - **SHA-pinned tooling:** SBOB-Forge and Software-Bill-of-Behavior actions
   pinned by commit SHA in every lane.
+- **Vendored-corpus integrity:** upstream test files are MIT-licensed,
+  attributed, and byte-verified against the pinned upstream SHA on every
+  lane run.
 - **Disposable containers:** scenario runs only in CI containers; the repo
   never executes reconstructed payloads on runner hosts outside them.
 - **Public-repo observability:** step summaries + PR-comment failure
@@ -201,6 +228,8 @@ milestone's claim ships with it. Issues M1–M5 track acceptance.
 - Software-Bill-of-Behavior `sbobctl` action (validate/diff/transpile/enforce),
   Node 22, zero npm install.
 - Wazuh manager container pinned (4.14.x lane pattern) for M3.
+- Upstream corpus: microsoft/agent-framework tag `python-1.26.0`; commit SHA
+  resolved and recorded by the first M2 lane run, then pinned.
 
 ## 9. Honest limitations (stated in the demo itself)
 
@@ -211,15 +240,19 @@ milestone's claim ships with it. Issues M1–M5 track acceptance.
    Monitor mode must come before Audit and Enforce for exactly this reason.
 3. **DNS-blind egress:** drift rules key on domain resolution; a raw-IP or
    allowlisted-domain beacon is a weaker signal (documented blind spot).
-4. **The gate's reach depends on the corpus:** the pytest corpus must
-   exercise the hook path; the `.pth` file write and the module import are
-   the load-bearing signals even when collection paths are thinly covered.
+4. **The gate's reach depends on the corpus:** the baseline comes from
+   upstream's own committed tests (max realism), but the malicious candidates
+   shipped no tests at all; their candidate profiles rest on the extension
+   tests we author (extend-not-skip). The `.pth` file write and the module
+   import are the load-bearing signals even when collection paths are thinly
+   covered.
 
 ## 10. References
 
 - Wiz advisory: https://www.wiz.io/blog/malicious-version-of-microsofts-agent-framework-published-to-pypi
 - OpenSourceMalware: https://opensourcemalware.com/blog/agent-framework-pypi-compromised
 - Aikido: https://www.aikido.dev/blog/two-malicious-agent-framework-releases-hit-pypi-in-33-minutes
+- Upstream (tests vendored under MIT): https://github.com/microsoft/agent-framework
 - SBOB-Forge: https://github.com/DevelApp-ai/SBOB-Forge
 - Software-Bill-of-Behavior: https://github.com/DevelApp-ai/Software-Bill-of-Behavior
 - Adoption guide: https://github.com/DevelApp-ai/SBOB-Forge/blob/main/docs/adoption.md
