@@ -30,7 +30,18 @@ if ! service auditd start; then
 fi
 sleep 1
 if ! auditctl -l >/dev/null 2>&1; then
-  echo "FAIL: auditctl not functional — the container must run --privileged (CAP_AUDIT_CONTROL)" >&2
+  echo "FAIL: auditctl not functional — dumping diagnostics:" >&2
+  echo "--- auditctl -s ---"; auditctl -s 2>&1 || true
+  echo "--- auditctl -l ---"; auditctl -l 2>&1 || true
+  echo "--- /proc/cmdline ---"; cat /proc/cmdline 2>&1 || true
+  echo "--- audit sysctls ---"; ls /proc/sys/kernel/ | grep -i audit || echo "(none)"
+  echo "--- direct auditd attempt (captured) ---"
+  auditd --foreground > /tmp/auditd-fg.log 2>&1 &
+  fgpid=$!
+  sleep 2
+  cat /tmp/auditd-fg.log 2>&1 || true
+  kill $fgpid 2>/dev/null || true
+  echo "--- audit log dir ---"; ls -la /var/log/audit/ 2>&1 || true
   exit 1
 fi
 auditctl -l || true

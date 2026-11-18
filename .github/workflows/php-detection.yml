@@ -63,6 +63,25 @@ jobs:
         with:
           node-version: 22
 
+      - name: Probe the runner host audit subsystem (observer strategy diagnostic)
+        run: |
+          echo "--- /proc/cmdline ---"; cat /proc/cmdline
+          echo "--- kernel audit sysctls ---"
+          echo "/proc/sys/kernel/audit_enabled = $(cat /proc/sys/kernel/audit_enabled 2>&1)"
+          ls /proc/sys/kernel/ | grep -i audit || echo "(no audit sysctls: kernel audit not compiled in)"
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq auditd >/dev/null 2>&1 || true
+          sudo service auditd start >/dev/null 2>&1 || sudo auditd || true
+          sleep 1
+          echo "--- auditctl -s (runner host) ---"; sudo auditctl -s 2>&1 || true
+          echo "--- auditctl -l (runner host) ---"; sudo auditctl -l 2>&1 || true
+          echo "--- host audit.log ---"; sudo tail -5 /var/log/audit/audit.log 2>&1 || true
+          # annotation channel (public annotations API): the strategy facts
+          echo "::error title=host-audit-probe::cmdline $(cat /proc/cmdline)"
+          echo "::error title=host-audit-probe::audit_enabled=$(cat /proc/sys/kernel/audit_enabled 2>&1)"
+          echo "::error title=host-audit-probe::auditctl-s $(sudo auditctl -s 2>&1 | tr '\n' '|' | head -c 500)"
+          echo "::error title=host-audit-probe::auditctl-l $(sudo auditctl -l 2>&1 | tr '\n' '|' | head -c 500)"
+
       - name: Transpile the php-fpm bundle (SHA-pinned SBoB toolchain)
         run: |
           cd sbob-repo
