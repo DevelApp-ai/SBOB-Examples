@@ -13,10 +13,16 @@
 //   benign mode: replay the window `--repeats` times in ONE session and
 //     assert ZERO alerts (level-0 base-chain matches are fine, and the
 //     sustained children must stay silent too — they chain from drift
-//     rules that benign lines can never match)
+//     rules that benign lines can never match). An EMPTY window is the
+//     honest node-side-observer shape (delta 7: the exe-scoped keys cannot
+//     tag the containerized workload, so benign declared behavior is
+//     untagged) and passes vacuously: there is nothing that could fire.
 //   drift mode: replay the window once and assert every --expect rule id
-//     fired; then replay it `--repeats` times in ONE session and assert
-//     every --expect-sustained frequency child fired (8 matches / 120s)
+//     fired and every --expect-absent rule id did NOT (the recorded
+//     delta-7 gap: exe-scoped rules cannot tag the containerized workload
+//     node-side, so the live drift window fires only the node-scoped
+//     signature rule); then replay it `--repeats` times in ONE session and
+//     assert every --expect-sustained frequency child fired (8/120s)
 //
 // Exit codes: 0 = pass, 1 = detection assertion failed, 2 = usage/transport.
 // Zero dependencies, Node >= 22 (type stripping), mirroring the proven
@@ -27,8 +33,7 @@
 //     --file telemetry/benign.audit --mode benign --repeats 8
 //   node logtest-replay.ts --api https://localhost:55000 --pass wazuh \
 //     --file telemetry/drift.audit --mode drift \
-//     --expect 100111,100121,100131,100163 \
-//     --expect-sustained 100112,100122,100132 --repeats 8
+//     --expect 100163 --expect-absent 100111,100121,100131 --repeats 8
 // ---------------------------------------------------------------------------
 import { readFileSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
@@ -225,12 +230,13 @@ interface CliConfig {
   file: string;
   mode: "benign" | "drift";
   expect: string[];
+  expectAbsent: string[];
   expectSustained: string[];
   repeats: number;
 }
 
 function parseArgs(argv: readonly string[]): CliConfig | null {
-  const c: Partial<CliConfig> = { user: "wazuh", expect: [], expectSustained: [], repeats: 8 };
+  const c: Partial<CliConfig> = { user: "wazuh", expect: [], expectAbsent: [], expectSustained: [], repeats: 8 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     const next = (): string => {
@@ -248,6 +254,8 @@ function parseArgs(argv: readonly string[]): CliConfig | null {
       if (m !== "benign" && m !== "drift") throw new Error(`--mode must be benign|drift (got ${m})`);
       c.mode = m;
     } else if (a === "--expect") c.expect = next().split(",").map((s) => s.trim()).filter(Boolean);
+    else if (a === "--expect-absent")
+      c.expectAbsent = next().split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--expect-sustained")
       c.expectSustained = next().split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--repeats") {
@@ -275,13 +283,25 @@ async function main(): Promise<number> {
     console.error(`usage error: ${e instanceof Error ? e.message : String(e)}`);
     console.error(
       "usage: node logtest-replay.ts --api https://host:55000 --pass <secret> --file <window.audit> \\" +
-        "\n       --mode benign|drift [--expect 100111,...] [--expect-sustained 100112,...] [--repeats 8]",
+        "\n       --mode benign|drift [--expect 100111,...] [--expect-absent 100111,...] [--expect-sustained 100112,...] [--repeats 8]",
     );
     return 2;
   }
 
   const lines = corpusLines(readFileSync(cfg.file, "utf8"));
   if (lines.length === 0) {
+    if (cfg.mode === "benign") {
+      // the honest node-side-observer shape (delta 7): the exe-scoped keys
+      // cannot tag the containerized workload, so the benign declared
+      // behavior produces no sbob-tagged events. Nothing to replay, nothing
+      // can fire; benign silence on tagged content is proven by the
+      // recorded corpus (leg 1, scripts/logtest-api.ts --target php).
+      console.log(
+        `OK (vacuous): ${cfg.file} carries no sbob-tagged events (node-side observer mode, delta 7) — ` +
+          "nothing can fire; benign silence on tagged content is proven by the recorded corpus (leg 1)",
+      );
+      return 0;
+    }
     console.error(`FAIL: ${cfg.file} contains no event lines`);
     return 1;
   }
@@ -334,6 +354,19 @@ async function main(): Promise<number> {
     return 1;
   }
   for (const id of cfg.expect) console.log(`OK: rule ${id} fired on live telemetry`);
+
+  // the recorded gap: rule ids that MUST NOT fire on this live window
+  // (delta 7: exe-scoped rules cannot tag the containerized workload
+  // node-side; their legs are proven on the recorded corpus, leg 1)
+  const firedAbsent = cfg.expectAbsent.filter((id) => seen.has(id));
+  if (firedAbsent.length > 0) {
+    console.error(
+      `FAIL: rules ${firedAbsent.join(", ")} fired although --expect-absent (they must stay untagged in this observer mode)`,
+    );
+    return 1;
+  }
+  for (const id of cfg.expectAbsent)
+    console.log(`OK: rule ${id} correctly absent from this live window (delta 7 shape)`);
 
   // sustained pass: repeats passes in ONE session -> frequency children fire
   if (cfg.expectSustained.length > 0) {

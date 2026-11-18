@@ -33,6 +33,11 @@ the agent observes the node, the workload runs in a container. The audit
 rules are kernel-wide for the lifetime of the CI job only, on a recycled
 runner node; the exe-scoped rules cannot fire for anything outside this
 container, and node-scoped signature keys are attributed to the workload by
-uid in the capture (see `scenarios/php2shell/telemetry/README.md`). On a
+uid in the capture (see `scenarios/php2shell/telemetry/README.md`). **The
+exe-scoped rules also cannot fire for this containerized php-fpm itself from
+the node-side observer** — the node auditd resolves the binary through the
+overlay2 path, not `/usr/local/sbin/php-fpm` (delta 7 in
+`docs/php2shell/detection-evidence.md`, the honest finding this scenario
+records; the in-container observer mode below tags normally). On a
 self-hosted node where in-container auditd works, the image retains auditd
 and the entrypoint will use it (self-hosted observer mode).

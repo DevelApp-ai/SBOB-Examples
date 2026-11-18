@@ -8,7 +8,11 @@
 #   - SYSCALL records whose key is one of the workload-scoped keys
 #     (sbob-exec-php-fpm / sbob-open-php-fpm / sbob-connect-php-fpm):
 #     the generated audit fragment is exe-scoped to /usr/local/sbin/php-fpm,
-#     so by construction only this container's php-fpm trips them
+#     so by construction only this container's php-fpm trips them — FROM THE
+#     IN-CONTAINER VANTAGE. From the node-side observer these keys never
+#     match the containerized workload (the node auditd resolves the binary
+#     through the overlay2 path): delta 7 in docs/php2shell/detection-
+#     evidence.md, the finding this scenario records
 #   - SYSCALL records with node-scoped signature keys
 #     (sbob-memfd / sbob-module-load / sbob-namespace-change /
 #     sbob-process-tracing) attributed to the workload by uid=33: those keys

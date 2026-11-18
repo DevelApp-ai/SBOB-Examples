@@ -14,8 +14,8 @@ two auditd windows:
 
 | window | request | expected telemetry |
 |---|---|---|
-| `benign.audit` | `benign.php` | declared behavior only: `/var/www/html/*` read, `/var/lib/php/sessions/*` write, `/etc/resolv.conf` read, connect to the declared memcache peer `10.96.100.10:11211`. Must stay silent against the transpiled rules: level-0 base chain only. |
-| `drift.audit` | `behaviors.php` | the four post-exploit behaviors: `/bin/sh` exec from the worker (CVE-2026-109618 follow-on), webshell drop to `/var/tmp/.php2shell.php`, C2 stand-in connect `127.0.0.1:4444` (CVE-2026-109619, loopback stand-in), `memfd_create` via FFI. |
+| `benign.audit` | `benign.php` | declared behavior only: `/var/www/html/*` read, `/var/lib/php/sessions/*` write, `/etc/resolv.conf` read, connect to the declared memcache peer `10.96.100.10:11211`. From the in-container observer (self-hosted mode) these are tagged and must stay silent against the transpiled rules (level-0 base chain only). From the node-side observer the exe-scoped keys cannot tag the containerized workload (delta 7), so the window is EMPTY — drift-free by construction, vacuously silent. |
+| `drift.audit` | `behaviors.php` | the four post-exploit behaviors: `/bin/sh` exec from the worker (CVE-2026-109618 follow-on), webshell drop to `/var/tmp/.php2shell.php`, C2 stand-in connect `127.0.0.1:4444` (CVE-2026-109619, loopback stand-in), `memfd_create` via FFI. From the node-side observer only the memfd leg is tagged (node-scoped key, uid 33) and fires 100163; the exe-scoped legs execute for real but stay untagged (delta 7, proven by side effects). From the in-container observer all four are tagged corpus-shaped. |
 
 Each window contains the same record types as the recorded corpus
 (`type=SYSCALL`, plus the `type=EXECVE` / `type=PATH` / `type=SOCKADDR`
@@ -36,13 +36,20 @@ php contract, and its rules carry the scoping:
 
 - `sbob-exec-php-fpm` / `sbob-open-php-fpm` / `sbob-connect-php-fpm` are
   **exe-scoped (Mode A)**: only processes whose exe is
-  `/usr/local/sbin/php-fpm` trip them. The CI runner's own processes
-  (docker, shell, node) never match, by construction.
+  `/usr/local/sbin/php-fpm` trip them. **From the node-side observer this
+  never matches a containerized workload** — the node auditd resolves the
+  container binary through the overlay2 path, not the in-container path
+  (delta 7 in `docs/php2shell/detection-evidence.md`, the finding this
+  scenario records). From the in-container observer (self-hosted mode)
+  the CI runner's own processes (docker, shell, node) never match, by
+  construction.
 - `sbob-memfd` (and the other signature keys) are **node-scoped (Mode B)**
-  by design: every process on the node trips them. A CI runner node is a
-  shared node, so `harness/capture-window.sh` attributes signature-key
-  events to the workload by `uid=33` (the php-fpm worker uid, the same uid
-  the recorded corpus carries). This is exactly the attribution that
+  by design: every process on the node trips them, and the rule has no
+  exe filter — which is why the memfd leg is the one drift leg that fires
+  live from the node-side observer. A CI runner node is a shared node, so
+  `harness/capture-window.sh` attributes signature-key events to the
+  workload by `uid=33` (the php-fpm worker uid, the same uid the recorded
+  corpus carries). This is exactly the attribution that
   `rulePolicies.processAllowed` exemptions provide in a real deployment.
 - `type=CWD` / `type=PROCTITLE` records are dropped: no sbob decoder or
   rule consumes them, and the recorded corpus carries only the four record
