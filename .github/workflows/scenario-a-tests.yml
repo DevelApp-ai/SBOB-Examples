@@ -1,0 +1,37 @@
+name: scenario-a-tests
+
+# Scenario A (agent-framework replay) verification lane.
+# Runs the full M1 pytest suite plus the stdlib-only validation script in a
+# disposable python:3.12-slim container (TDS §7). Everything is loopback-only.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "scenarios/agent-framework/**"
+      - ".github/workflows/scenario-a-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scenario-a:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-slim
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stdlib-only validation (no third-party code runs the stealer)
+        run: python3 scenarios/agent-framework/scripts/validate_scenario_a.py
+
+      - name: Install pytest
+        run: pip install --no-cache-dir pytest
+
+      - name: Pytest suite
+        run: |
+          cd scenarios/agent-framework
+          python3 -m pytest tests/ -v

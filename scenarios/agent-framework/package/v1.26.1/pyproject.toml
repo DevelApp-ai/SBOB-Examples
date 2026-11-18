@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-framework"
+version = "1.26.1"
+description = "Reconstruction of the malicious agent-framework 1.26.1 wheel (SBOB-Examples scenario A, DEMONSTRATION RECONSTRUCTION — NOT MALWARE)"
+requires-python = ">=3.10"
+# Faithful to the incident: 1.26.1 was a WHEEL-ONLY release that still pinned
+# the previous core (Wiz advisory) — documented here as the provenance signal
+# the supply-chain gate would also have caught (TDS §6 M2 Gate A).
+dependencies = ["agent-framework-core[all]==1.26.0"]
