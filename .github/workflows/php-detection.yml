@@ -80,10 +80,11 @@ jobs:
 
       - name: Build the php-fpm workload image
         run: |
+          set -o pipefail
           docker build \
             -f scenarios/php2shell/workload/Dockerfile \
             -t sbob-php2shell:ci \
-            scenarios/php2shell
+            scenarios/php2shell 2>&1 | tee docker-build.log
 
       - name: "Run the workload container (privileged: in-container auditd)"
         run: |
@@ -128,10 +129,14 @@ jobs:
             telemetry-run/benign.audit telemetry-run/drift.audit 2>&1 | tee parity-check.log
 
       - name: Upload telemetry artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: php2shell-telemetry
+          if-no-files-found: warn
           path: |
+            docker-build.log
+            restart.log
             telemetry-run/benign.audit
             telemetry-run/drift.audit
             telemetry-run/audit-tail.log
@@ -141,7 +146,6 @@ jobs:
             api-gate.log
             live-benign-gate.log
             live-drift-gate.log
-          if-no-files-found: error
 
       # ---- detection stack: the proven lab-validate pattern, pinned SBoB ----
 

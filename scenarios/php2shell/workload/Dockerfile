@@ -38,9 +38,9 @@ RUN docker-php-ext-install ffi
 # gc_probability=0   -> no garbage collector opendir() on the session dir inside
 #                       capture windows (the bare session dir is not a declared
 #                       opens[] entry; gc would be benign-window noise)
-COPY php.ini /usr/local/etc/php/conf.d/zz-sbob-demo.ini
-COPY php-fpm.conf /usr/local/etc/php-fpm.conf
-COPY pool-www.conf /usr/local/etc/php-fpm.d/www.conf
+COPY workload/php.ini /usr/local/etc/php/conf.d/zz-sbob-demo.ini
+COPY workload/php-fpm.conf /usr/local/etc/php-fpm.conf
+COPY workload/pool-www.conf /usr/local/etc/php-fpm.d/www.conf
 
 # Web root (declared read path). index.php is the app file the benign run
 # reads; benign.php and behaviors.php are the two harness entrypoints,
@@ -56,7 +56,7 @@ RUN mkdir -p /var/lib/php/sessions \
 COPY harness/run-behaviors.sh harness/capture-window.sh /opt/harness/
 RUN chmod +x /opt/harness/*.sh
 
-COPY entrypoint.sh /opt/entrypoint.sh
+COPY workload/entrypoint.sh /opt/entrypoint.sh
 RUN chmod +x /opt/entrypoint.sh
 
 EXPOSE 9000
