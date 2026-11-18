@@ -210,7 +210,7 @@ jobs:
             if [ "$i" -gt 2 ]; then break; fi
             echo "::error title=side-effect::$(printf '%s' "$line" | head -c 400)"
           done < /tmp/side.log
-          sudo grep -h 'key="sbob-' /var/log/audit/audit.log 2>/dev/null | sort -u | head -3 > /tmp/sbob-rec.log || true
+          sudo grep -h '^type=SYSCALL.*key="sbob-' /var/log/audit/audit.log 2>/dev/null | sort -u | head -3 > /tmp/sbob-rec.log || true
           i=0
           while IFS= read -r line; do
             i=$((i+1))
@@ -414,7 +414,7 @@ jobs:
           done
           echo "::error title=audit-tail::$(sudo tail -5 /var/log/audit/audit.log 2>/dev/null | tr '\n' '~' | head -c 700)"
           echo "::error title=loaded-rules::$(sudo auditctl -l 2>&1 | tr '\n' '~' | head -c 700)"
-          sudo grep -h 'key="sbob-' /var/log/audit/audit.log 2>/dev/null | sort -u | head -3 > /tmp/sbob-records.log || true
+          sudo grep -h '^type=SYSCALL.*key="sbob-' /var/log/audit/audit.log 2>/dev/null | sort -u | head -3 > /tmp/sbob-records.log || true
           n=0
           while IFS= read -r line; do
             n=$((n+1))

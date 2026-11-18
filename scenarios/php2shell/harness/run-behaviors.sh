@@ -54,8 +54,12 @@ DRIFT_RESP=$(fcgi behaviors.php) || DRIFT_RESP="___fcgi-request-failed"
 D1=$(date +%s.%N)
 printf '%s\n' "$DRIFT_RESP"
 
-# let auditd flush the window tail
-sleep 2
+# let auditd flush the window tail: auditd writes the node log
+# incrementally (about every 5s on the CI runner — proven live in this
+# lane: a tagged sbob-memfd event existed in the kernel queue at capture
+# time but reached /var/log/audit/audit.log only after the capture grep),
+# so wait well past one flush interval before reading the log back
+sleep 10
 
 bash /opt/harness/capture-window.sh "$AUDIT_LOG" "$B0" "$B1" "$OUT/benign.audit" "$D0" "$D1" "$OUT/drift.audit"
 
