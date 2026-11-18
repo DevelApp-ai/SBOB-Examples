@@ -13,7 +13,7 @@ Three defenses, each a milestone with its own CI lane and committed evidence:
 
 | # | Defense | Tooling | Effect on 2026-11-17 |
 |---|---------|---------|----------------------|
-| 1 | **Supply-chain gate** (pre-install) | `sbobforge generate` + `sbobctl diff --fail-on mandatory` | The dependency-update PR flags 1.26.1/1.26.2 as MANDATORY behavior deltas vs the committed 1.26.0 profile. Reviewed before install; nothing reaches a runner holding credentials. |
+| 1 | **Supply-chain gate** (pre-install) | fail-closed refusal + `sbobctl profile` (canary) + `sbobctl diff --fail-on mandatory` | Three gates: refuse what cannot be profiled (wheel-only, no sdist, no tag, no signed entry); identify the stealer by canary-observed telemetry (the `.pth` hook fires on first Python start, no test reachability needed); score its delta MANDATORY vs the 1.26.0 baseline. |
 | 2 | **Runtime detection** (Monitor / Audit) | `sbobctl transpile` (Wazuh audit rules, CDB allowlists, Sigma) | Drift alerts fire on the first `.pth`-triggered Python start: new startup-hook execution, `/proc/*/environ` reads, unknown external egress. |
 | 3 | **Enforcement** (Enforce) | `sbobctl enforce` (NetworkPolicy / AppArmor / seccomp) | The single HTTPS POST to the exfil endpoint fails closed. Clean 1.26.0 workloads are unaffected (no false positive). |
 
@@ -32,9 +32,14 @@ and payload mechanics: [docs/TDS.md](docs/TDS.md), section 2.
 
 SBoB is a **damage-prevention and detection** control, not a provenance
 control. It would not have stopped the unauthorized PyPI publish (that is
-identity/provenance: stolen token, wheel-only upload, missing git tag). What
-it changes is everything after publication. The demo documents both sides:
-[docs/TDS.md](docs/TDS.md), section 9.
+identity/provenance: stolen token, wheel-only upload, missing git tag). And
+the attacker authors the candidate release's corpus: code outside test reach
+is invisible to test-derived profiles, so a pure corpus diff would not have
+marked 1.26.1/1.26.2. The supply-chain layer's real catches are **refusal**
+(fail-closed when no comparable profile can be generated or verified) and
+**observation** (canary profiling sees the `.pth` hook fire on the first
+Python start, no attacker cooperation needed). Details:
+[docs/TDS.md](docs/TDS.md), sections 6 (M2) and 9.
 
 ## Repo layout
 
