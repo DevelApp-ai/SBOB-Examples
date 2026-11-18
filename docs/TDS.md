@@ -1,6 +1,6 @@
 # TDS: SBOB-Examples — the agent-framework compromise, replayed against SBoB
 
-**Status:** v1.1 (2026-11-18; v1.1 adds upstream corpus provenance, Lars's call)
+**Status:** v1.2 (2026-11-18; v1.2 restructures M2 into three gates around the adversarial-corpus blind spot, Lars's challenge)
 **Repo:** DevelApp-ai/SBOB-Examples (public)
 **Spec owner:** Lars. **Delivery:** org decisions #26–#29 (squash merges, agents
 merge their own PRs when green with their own tests). Milestones tracked as
@@ -144,36 +144,67 @@ milestone's claim ships with it. Issues M1–M5 track acceptance.
   one POST per stealer run; a test asserts zero non-loopback sockets;
   watermark headers present.
 
-### M2: supply-chain diff gate (layer 1)
-- **Baseline profile from the real upstream tests** (Lars's call, chat
-  2026-11-18): the 1.26.0 baseline profile is generated from
+### M2: supply-chain gate (layer 1) — three gates, honestly ordered
+
+Lars's challenge (chat 2026-11-18) stands at the center: the attacker authors
+the candidate release and its corpus. Code placed outside corpus reach is
+invisible to test-derived profiling, and the malicious releases shipped no
+tests at all. A pure corpus diff would NOT have marked 1.26.1/1.26.2. The
+layer therefore rests on two refusals and one identification:
+
+**Gate A — corpus/provenance fail-closed (the realistic catch).** The
+malicious releases shipped wheel-only, no sdist, no matching tag, no tests.
+No comparable candidate profile can be generated from what the artifact does
+not contain; the gate fails closed (a diff that cannot run is an `error`
+verdict, never green) and the dependency-update PR is flagged for human
+review. This alone breaks the automated-install path that did the damage in
+the 45-minute window (loose `>=1.26` pins). Companion refusal: a consumer
+pinning signed registry profiles finds no signed entry from the trusted
+identity for 1.26.1/1.26.2 (`sbobctl verify` fails) and refuses.
+**Demonstrated:** profile generation over the artifact-only candidate fails
+closed; asserted in the lane.
+
+**Gate B — behavior diff on the reconstruction (the delta evidence).** To
+show WHAT the diff would score if a candidate profile existed, the demo
+extends the vendored 1.26.0 corpus with watermarked tests exercising the
+attacker's new top-level hook modules and generates candidate profiles for
+the reconstructed 1.26.1/1.26.2 trees. Explicitly labeled demo scaffolding:
+a real attacker never grants the corpus extension. This gate exists to make
+the scored delta visible, not to claim the attacker cooperates.
+
+**Gate C — canary profiling (identification without attacker
+cooperation).** Run each version in a disposable canary container with
+auditd/sbob telemetry and seeded canary credentials, exfil pointed at the
+loopback sink. The `.pth` hook fires on the FIRST Python start: no test
+reachability required, no corpus to game. `sbobctl profile` (M9) derives a
+candidate SBoB from the observed telemetry window; its reviewed delta scores
+through the M8 diff gate against the 1.26.0 baseline: **MANDATORY** (new
+opens on credential paths and `/proc/*/environ`, new egress peer, new exec
+surface). The attacker can game a test corpus; they cannot game a
+kernel-level observer by hiding code from tests. This is the supply-chain
+layer's actual identification of the stealer, pre-install.
+
+- **Baseline** for all gates: the 1.26.0 profile generated from
   microsoft/agent-framework's own committed pytest corpus, vendored under
-  `upstream/corpus-1.26.0/` from tag `python-1.26.0` (MIT; attribution
-  and license preserved). The first lane run resolves and records the tag's
-  commit SHA in `upstream/ATTRIBUTION.md`; afterwards the lane pins that
-  SHA and byte-verifies the vendored copy against it (the .github
-  template-sync pattern). Maximum realism: the clean baseline is derived
-  from upstream's own suite, exactly what a consumer-side gate consumes.
-- **Candidate profiles** for the reconstructed 1.26.1/1.26.2 package trees
-  are generated from the same corpus, **extended, never skipped** (org scope
-  rule): watermarked pytest tests exercising the attacker's new top-level
-  hook modules (`import agent_framework_meta` / `af_runtime_diag`) so
-  the generator attributes the new opens/egress to the candidate package.
-- **Fail-closed provenance note** (documented in the evidence doc): a real
-  consumer gate would already refuse 1.26.1/1.26.2 at the corpus level:
-  wheel-only, no sdist and no matching tag means no comparable corpus can
-  be pinned, so no candidate profile can be generated or trusted. The demo
-  reconstructs the package source to run the deeper behavior-diff layer
-  anyway; both refusals are part of the story.
-- Lane `supply-chain-gate.yml`: consumer shape. `sbobctl diff` old=1.26.0
-  new=1.26.1, and old=1.26.0 new=1.26.2, each asserting **verdict MANDATORY,
-  exit 1**; control diff (clean vs clean) asserting **verdict none, exit 0**.
-- Delta reports committed under `docs/` as evidence with a verdict table.
-- **Accept:** lane green asserting expected verdicts (no permanently red
-  lane); `docs/supply-chain-evidence.md` maps each delta row to the scoring
-  ladder classes (capabilities +5, exec outside namespace +4, external DNS +3,
-  widened wildcard +2, removed +1); vendored corpus byte-verified against the
-  pinned upstream SHA; ATTRIBUTION.md carries tag + SHA + license.
+  `upstream/corpus-1.26.0/` from tag `python-1.26.0` (MIT; attribution and
+  license preserved). First lane run resolves + records the tag SHA in
+  `upstream/ATTRIBUTION.md`; afterwards the lane pins the SHA and
+  byte-verifies the vendored copy (the .github template-sync pattern).
+- Lane `supply-chain-gate.yml`, three jobs + control: A asserts
+  fail-closed generation on the artifact-only candidate; B asserts
+  `sbobctl diff` old=1.26.0 new=1.26.1 and new=1.26.2 both **MANDATORY,
+  exit 1**; C asserts the canary-derived candidate diffs **MANDATORY**
+  against the baseline; control asserts clean canary + clean diff =
+  **verdict none, exit 0**.
+- Delta reports and canary provenance sidecars committed under `docs/` as
+  evidence.
+- **Accept:** lane green asserting expected verdicts per gate (no
+  permanently red lane); `docs/supply-chain-evidence.md` maps each delta
+  row to the scoring ladder classes (capabilities +5, exec outside
+  namespace +4, external DNS +3, widened wildcard +2, removed +1) and states
+  the corpus blind spot in plain words; vendored corpus byte-verified
+  against the pinned upstream SHA; ATTRIBUTION.md carries tag + SHA +
+  license.
 
 ### M3: runtime detection (layer 2)
 - Commit the consumer workload profile (a Python CI runner using the
@@ -240,12 +271,15 @@ milestone's claim ships with it. Issues M1–M5 track acceptance.
    Monitor mode must come before Audit and Enforce for exactly this reason.
 3. **DNS-blind egress:** drift rules key on domain resolution; a raw-IP or
    allowlisted-domain beacon is a weaker signal (documented blind spot).
-4. **The gate's reach depends on the corpus:** the baseline comes from
-   upstream's own committed tests (max realism), but the malicious candidates
-   shipped no tests at all; their candidate profiles rest on the extension
-   tests we author (extend-not-skip). The `.pth` file write and the module
-   import are the load-bearing signals even when collection paths are thinly
-   covered.
+4. **The adversarial-corpus blind spot (the demo's central honest
+   point):** the baseline is derived from upstream's own tests, but a
+   compromised release ships whatever corpus the attacker chooses, and code
+   placed outside corpus reach is invisible to test-derived profiling. The
+   supply-chain layer therefore rests on refusal (fail-closed when no
+   comparable profile can be generated or verified) and observation (canary
+   profiling of the artifact's actual behavior), never on attacker-supplied
+   tests. Runtime detection and enforcement carry the same principle to the
+   host: the kernel sees what the corpus never did.
 
 ## 10. References
 
