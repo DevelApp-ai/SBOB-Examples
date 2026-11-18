@@ -148,6 +148,25 @@ jobs:
           sudo auditctl -R dist/php/wazuh/audit/sbob/php-fpm.rules
           echo "--- loaded rules (node) ---"
           sudo auditctl -l
+          # Emission probe: the memfd signature rule is node-scoped and has
+          # NO exe/uid filter, so a memfd_create made directly on the runner
+          # MUST produce key="sbob-memfd". This discriminates "rules not
+          # emitting node-side" from "workload not making the syscalls".
+          before=$(sudo grep -c 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null || echo 0)
+          python3 - <<'PYEOF'
+          import ctypes
+          libc = ctypes.CDLL(None, use_errno=True)
+          fd = libc.memfd_create(b"sbob-node-probe", 0)
+          print("probe memfd_create fd:", fd)
+          PYEOF
+          sleep 2
+          after=$(sudo grep -c 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null || echo 0)
+          echo "sbob-memfd record count: before=$before after=$after"
+          if [ "${after:-0}" -gt "${before:-0}" ]; then
+            echo "OK: node-side sbob emission works (the memfd key fires)"
+          else
+            echo "WARN: probe memfd_create was NOT logged node-side (rules not emitting)"
+          fi
 
       - name: Run the benign + post-exploit request flows and capture the windows
         run: |
@@ -337,15 +356,34 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY" || true
           # annotation channel (public annotations API): failure lines + window tails
+          # 1) all FAIL lines from every gate log reached
           for f in workload-run.log parity-check.log corpus-gate.log api-gate.log live-benign-gate.log live-drift-gate.log; do
             if [ -f "$f" ]; then
-              line=$(grep -m1 -E "FAIL:|ERROR:" "$f" || true)
-              if [ -n "$line" ]; then
-                echo "::error::$f: $(printf '%s' "$line" | head -c 900 | tr '\n' '~')"
-                break
-              fi
+              while IFS= read -r line; do
+                echo "::error::$f: $(printf '%s' "$line" | head -c 900)"
+              done < <(grep -E "^FAIL:|^ERROR:" "$f" | head -6)
             fi
           done
+          # 2) harness behavior evidence: did the fcgi requests really run,
+          #    did the four behaviors complete, what did capture select
+          if [ -f workload-run.log ]; then
+            while IFS= read -r line; do
+              echo "::error title=harness-evidence::$(printf '%s' "$line" | head -c 600)"
+            done < <(grep -E "behaviors:|benign:|\\[harness\\]|\\[capture\\]" workload-run.log | head -12)
+          fi
+          # 3) workload side effects: the drift behaviors leave real files —
+          #    their presence proves the syscalls happened regardless of audit
+          if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^$WORKLOAD_CONTAINER$"; then
+            docker exec "$WORKLOAD_CONTAINER" sh -c \
+              'echo "--- /var/tmp side effects ---"; ls -la /var/tmp/.pwned /var/tmp/.php2shell.php 2>&1; echo "--- php ffi ---"; php -m 2>/dev/null | grep -i ffi || echo "ffi NOT in php -m"; php -i 2>/dev/null | grep -i "^ffi.enable" || true' \
+              2>&1 | tr -d '\r' | while IFS= read -r line; do
+                [ -n "$line" ] && echo "::error title=side-effects::$(printf '%s' "$line" | head -c 600)"
+              done
+          fi
+          # 4) the loaded rules and the node emission probe result
+          echo "::error title=loaded-rules::$(sudo auditctl -l 2>&1 | tr '\n' '~' | head -c 900)"
+          sudo grep -c 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null \
+            | sed 's/^/::error title=memfd-count::node log sbob-memfd records: /' || true
           for f in telemetry-run/benign.audit telemetry-run/drift.audit telemetry-run/audit-tail.log; do
             [ -f "$f" ] || continue
             n=0

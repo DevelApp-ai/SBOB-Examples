@@ -53,6 +53,8 @@ sleep 2
 bash /opt/harness/capture-window.sh "$AUDIT_LOG" "$B0" "$B1" "$OUT/benign.audit" "$D0" "$D1" "$OUT/drift.audit"
 
 echo "[harness] --- in-container pre-checks (fail loudly, before any replay) ---"
+echo "[harness] drift side effects (behaviors really executed, audit aside):"
+ls -la /var/tmp/.pwned /var/tmp/.php2shell.php 2>&1 || true
 fail=0
 
 sig_drift_re='exe="/bin/sh"|/var/tmp/\.|syscall=319|saddr=0200115C7F000001'
