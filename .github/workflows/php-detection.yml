@@ -335,7 +335,7 @@ jobs:
           SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
             node sbob-repo/scripts/logtest-api.ts --target php --api "$WAZUH_API" 2>&1 | tee api-gate.log
 
-      - name: Live gate — benign telemetry silent (empty window = delta-7 shape, vacuously silent)
+      - name: "Live gate — benign telemetry silent (declared behavior only, zero alerts)"
         run: |
           set -o pipefail
           SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
@@ -343,15 +343,15 @@ jobs:
             --api "$WAZUH_API" \
             --file telemetry-run/benign.audit --mode benign --repeats 8 2>&1 | tee live-benign-gate.log
 
-      - name: "Live gate — drift fires 100163 (node-scoped key); exe-scoped legs correctly absent (delta 7)"
+      - name: "Live gate — drift fires all four legs (100111/100121/100131/100163) + sustained children"
         run: |
           set -o pipefail
           SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
             node scenarios/php2shell/harness/logtest-replay.ts \
             --api "$WAZUH_API" \
             --file telemetry-run/drift.audit --mode drift \
-            --expect 100163 \
-            --expect-absent 100111,100121,100131 \
+            --expect 100111,100121,100131,100163 \
+            --expect-sustained 100112,100122,100132 \
             --repeats 8 2>&1 | tee live-drift-gate.log
 
       - name: Verdict summary

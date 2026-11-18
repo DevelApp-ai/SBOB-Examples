@@ -41,7 +41,12 @@ sel() { # $1=t0 $2=t1 -> selected event ids on stdout
       sub(/\):$/, "", ts)
       split(ts, p, ":")
       tsv = p[1] + 0
-      if (tsv < t0 || tsv > t1) next
+      # mawk on Debian (1.3.4-20200120, the workload container awk) treats
+      # -v values as pure strings, so a bare `tsv < t0` degrades to a string
+      # compare and the numeric timestamp is mangled through CONVFMT
+      # ("1.79499e+09"), rejecting every in-window record. `+ 0` forces the
+      # numeric comparison on every awk. Proven live in this lane.
+      if (tsv < t0 + 0 || tsv > t1 + 0) next
       key = ""; uid = ""
       for (i = 3; i <= NF; i++) {
         if (key == "" && $i ~ /^key="sbob-/) {
@@ -109,3 +114,5 @@ echo "[capture] drift window: [$D0, $D1]"
 ids_for_window "$D0" "$D1" "$DRIFT_OUT"
 
 echo "[capture] benign records: $(wc -l < "$BENIGN_OUT"), drift records: $(wc -l < "$DRIFT_OUT")"
+echo "[capture] benign key histogram: $(grep -o 'key="sbob-[a-z0-9-]*"' "$BENIGN_OUT" | sort | uniq -c | tr '\n' ' ')"
+echo "[capture] drift key histogram: $(grep -o 'key="sbob-[a-z0-9-]*"' "$DRIFT_OUT" | sort | uniq -c | tr '\n' ' ')"
