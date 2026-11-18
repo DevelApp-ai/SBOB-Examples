@@ -1,13 +1,29 @@
 # SBOB-Examples
 
-End-to-end, runnable demonstrations of the **Software Bill of Behavior (SBoB)**
-toolchain replayed against a real supply-chain compromise: the
-**2026-11-17 Microsoft `agent-framework` PyPI hijack** (malicious versions
-1.26.1 and 1.26.2, ~41k downloads/week at the time).
+A **verification harness** for the Software Bill of Behavior (SBoB) toolchain:
+replay real compromises and measure, with committed evidence, what each SBoB
+layer would have changed. The repo answers one question with evidence, not
+opinion:
 
-The repo answers one question with evidence, not opinion:
+> Is SBoB good enough?
 
-> Could SBOB-Forge and Software-Bill-of-Behavior have changed the outcome?
+Two scenarios, deliberately different compromise classes:
+
+- **Scenario A — supply-chain release:** the [2026-11-17 Microsoft
+  `agent-framework` PyPI hijack](https://www.wiz.io/blog/malicious-version-of-microsofts-agent-framework-published-to-pypi)
+  (malicious 1.26.1/1.26.2, ~41k downloads/week). The attacker authors the
+  artifact and its corpus; the demo tests the supply-chain gates (fail-closed
+  refusal, canary identification, scored diff), runtime detection and
+  enforcement. Milestones M1-M5.
+- **Scenario B — runtime CVE exploit:** the October 2026 PHP RCEs
+  (CVE-2026-109618 / CVE-2026-109619, the PHP2Shell campaign), mapped onto
+  the proven [php-fpm SBoB contract](https://github.com/DevelApp-ai/Software-Bill-of-Behavior/blob/main/docs/php2shell-scenario.md).
+  No release ever shipped, so there is no supply-chain layer to engage; the
+  demo tests the declared-contract defense — post-exploit behavior is drift
+  by definition — with LIVE harness behaviors against detection and
+  enforcement in a disposable container. Milestones M6-M7.
+
+## Scenario A: agent-framework PyPI hijack
 
 Three defenses, each a milestone with its own CI lane and committed evidence:
 
@@ -41,24 +57,37 @@ marked 1.26.1/1.26.2. The supply-chain layer's real catches are **refusal**
 Python start, no attacker cooperation needed). Details:
 [docs/TDS.md](docs/TDS.md), sections 6 (M2) and 9.
 
+## Scenario B: PHP2Shell (October 2026 PHP RCEs)
+
+| # | Defense | What the demo proves |
+|---|---------|----------------------|
+| 1 | **Runtime detection** | A live harness performs the four post-exploit behaviors (shell spawn, webshell drop, C2 connect, memfd staging) inside a disposable php-fpm container; the transpiled bundle fires 100111/100121/100131/100163 + sustained children on the REAL captured telemetry; benign stays silent. |
+| 2 | **Enforcement in anger** | AppArmor/seccomp/NetworkPolicy from `sbobctl enforce` block all four behaviors for real; the benign workload is unaffected. This is the live-behavior enforcement evidence (Stage 3) the tooling repo still lists as pending. |
+
+The point of the contrast: scenario A engages the gate/detection/enforcement
+ladder; scenario B engages only the contract — and that asymmetry is stated,
+not papered over ([docs/TDS.md](docs/TDS.md), limitation 9.0).
+
 ## Repo layout
 
 ```
-scenario/            reconstruction of the incident (see safety policy, TDS 4)
+scenarios/agent-framework/   reconstruction of the PyPI hijack (safety policy, TDS 4)
   package/v1.26.0/   clean baseline + pytest corpus
   package/v1.26.1/   agent_framework_meta.pth + _telemetry.py reconstruction
   package/v1.26.2/   af_runtime_diag.pth + af_runtime_diag.py reconstruction
   sink/              loopback-only exfil sink (stands in for webhook[.]site)
   fixtures/          synthetic credential tree (no real secrets, ever)
+  php2shell/           post-exploit behavior harness + captured telemetry
 upstream/corpus-1.26.0/  the REAL microsoft/agent-framework pytest corpus,
                          vendored at tag python-1.26.0 (MIT) - the baseline
                          profile is generated from upstream's own tests
 sbobs/               committed, drift-gated SBoB profiles per version
 docs/                TDS, incident map, per-layer evidence docs
-.github/workflows/   supply-chain-gate / runtime-detection / enforce-block lanes
+.github/workflows/   supply-chain-gate / runtime-detection / enforce-block /
+                     php-detection / php-enforce lanes
 ```
 
-## Safety policy (read before touching scenario/)
+## Safety policy (read before touching scenarios/)
 
 The reconstruction is behaviorally faithful but **not a weapon**: the exfil
 endpoint is a loopback sink, all credentials are synthetic fixtures, and the

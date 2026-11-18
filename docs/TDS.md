@@ -1,6 +1,6 @@
 # TDS: SBOB-Examples — the agent-framework compromise, replayed against SBoB
 
-**Status:** v1.2 (2026-11-18; v1.2 restructures M2 into three gates around the adversarial-corpus blind spot, Lars's challenge)
+**Status:** v1.3 (2026-11-18; v1.3 generalizes the repo into a two-scenario verification harness and adds the PHP2Shell scenario, Lars's direction)
 **Repo:** DevelApp-ai/SBOB-Examples (public)
 **Spec owner:** Lars. **Delivery:** org decisions #26–#29 (squash merges, agents
 merge their own PRs when green with their own tests). Milestones tracked as
@@ -8,13 +8,25 @@ issues M1–M5 in this repo.
 
 ---
 
-## 1. Purpose
+## 1. Purpose — a verification harness, not a single demo
 
-One question, answered with runnable, evidence-gated demonstrations instead of
-argument:
+The repo's question (Lars, chat 2026-11-18):
 
-> Could the SBoB toolchain (SBOB-Forge + Software-Bill-of-Behavior) have
-> changed the outcome of the agent-framework PyPI compromise of 2026-11-17?
+> Is SBoB good enough? Replay real compromises and measure, with committed
+> evidence, what each SBoB layer would have changed.
+
+Two compromise classes, deliberately different in entry vector:
+
+| Scenario | Class | Entry vector | What SBoB engages |
+|---|---|---|---|
+| **A: agent-framework PyPI hijack** (2026-11-17) | supply-chain: a malicious release | unauthorized publish access; the attacker authors the artifact AND its corpus | supply-chain gates (fail-closed refusal, canary identification, scored diff), runtime detection, enforcement |
+| **B: PHP2Shell** (October 2026 PHP RCEs, CVE-2026-109618 / CVE-2026-109619) | runtime exploit: a CVE | memory corruption / stale global state; no release ever shipped | **no supply-chain gate** (honest row: there is no release to inspect); runtime drift detection (post-exploit behavior is drift by definition, whatever the CVE); enforcement (shell exec denied, webshell write denied, C2 connect blocked, memfd EPERM) |
+
+The contrast is the point: which layers engage for which compromise class,
+and where each honestly does not reach. Milestones M1–M5 = scenario A;
+M6–M7 = scenario B.
+
+Per-layer effect for scenario A (2026-11-17):
 
 Three layers, each with its own milestone, CI lane, and committed evidence:
 
@@ -107,13 +119,20 @@ silent-failure no-retry semantics, user-agent strings, version numbering.
 ## 5. Repo layout
 
 ```
-scenario/
-  package/
-    v1.26.0/   clean agent_framework_meta baseline + pytest corpus
-    v1.26.1/   agent_framework_meta.pth + __init__ hook + _telemetry.py
-    v1.26.2/   af_runtime_diag.pth + af_runtime_diag.py (init byte-clean)
-  sink/        loopback HTTP sink; asserts payload shape; logs receipt
-  fixtures/    synthetic HOME tree: .azure/, .npmrc, .netrc, .docker/, .env ...
+scenarios/
+  agent-framework/
+    package/
+      v1.26.0/   clean agent_framework_meta baseline + pytest corpus
+      v1.26.1/   agent_framework_meta.pth + __init__ hook + _telemetry.py
+      v1.26.2/   af_runtime_diag.pth + af_runtime_diag.py (init byte-clean)
+    sink/        loopback HTTP sink; asserts payload shape; logs receipt
+    fixtures/    synthetic HOME tree: .azure/, .npmrc, .netrc, .docker/, .env ...
+  php2shell/
+    workload/   php-fpm fixture (digest-pinned image spec, the SBoB php contract)
+    harness/    post-exploit behavior scripts: shell spawn, webshell drop,
+                C2 connect (loopback stand-in), memfd_create — executed FOR
+                REAL in the disposable container, not just replayed as logs
+    telemetry/  captured auditd windows from harness runs (sbob.* JSONL)
 upstream/
   corpus-1.26.0/   vendored microsoft/agent-framework pytest corpus at tag
                    python-1.26.0 (MIT; attribution headers preserved)
@@ -123,8 +142,10 @@ sbobs/
   versions/    generated, committed profiles: 1.26.0 / 1.26.1 / 1.26.2
   workload/    the consumer workload profile (Python CI runner using the pkg)
 docs/
-  TDS.md  incident-map.md  supply-chain-evidence.md
-  runtime-evidence.md  enforce-evidence.md  incident-report.md
+  TDS.md
+  agent-framework/  incident-map.md  supply-chain-evidence.md
+                    runtime-evidence.md  enforce-evidence.md  incident-report.md
+  php2shell/        detection-evidence.md  enforce-evidence.md
 .github/workflows/
   supply-chain-gate.yml  runtime-detection.yml  enforce-block.yml
 ```
@@ -132,7 +153,9 @@ docs/
 ## 6. Milestones
 
 Each milestone lands as PRs (squash) with its own tests; the lane proving the
-milestone's claim ships with it. Issues M1–M5 track acceptance.
+milestone's claim ships with it. Issues track acceptance.
+
+### Scenario A: agent-framework (M1–M5)
 
 ### M1: scenario reconstruction
 - Clean 1.26.0 package, faithful 1.26.1 and 1.26.2 reconstructions, loopback
@@ -235,6 +258,51 @@ layer's actual identification of the stealer, pre-install.
 - **Accept:** report cites committed evidence for every claim; README runs
   end-to-end for a third party.
 
+### Scenario B: PHP2Shell (M6–M7)
+
+Grounding: the proven Stage-1 corpus replay in Software-Bill-of-Behavior
+(docs/php2shell-scenario.md, php target lab-validated in CI). The demo's
+added value is the part that repo still lists as pending: **live post-exploit
+behavior against detection AND enforcement in a disposable container** — the
+"would it actually have been avoided" evidence.
+
+#### M6: PHP2Shell post-exploit behavior harness + detection replay
+- scenarios/php2shell/harness/: scripts that perform the four post-exploit
+  behaviors FOR REAL inside the disposable php-fpm container — /bin/sh spawn
+  from a php-fpm worker context, webshell drop to /var/tmp (undeclared
+  write), connect to an undeclared peer (loopback stand-in for the C2),
+  memfd_create — plus a benign run (master exec, app-file read, session
+  write, resolver read, memcache connect).
+- Telemetry: capture the auditd/sbob.* window from both runs.
+- Detection lane (php-detection.yml): transpile the php-fpm bundle
+  (SHA-pinned SBoB) into the containerized wazuh-manager (the proven
+  lab-validate pattern), replay (a) the recorded corpus lines — parity with
+  the proven Stage 1 — and (b) the LIVE-captured harness telemetry. Assert
+  drift rules 100111/100121/100131/100163 + sustained children
+  100112/100122/100132 fire on malicious; benign stays silent.
+- docs/php2shell/detection-evidence.md: the real timeline (disclosed
+  2026-10-21, exploited in the wild since, CISA KEV 2026-10-26) vs the demo
+  timeline, rule-for-rule.
+- **Accept:** malicious harness telemetry fires every mapped rule; benign
+  run silent; live-captured telemetry parity with the recorded corpus.
+
+#### M7: PHP2Shell enforcement in anger (Stage 3, delivered as evidence)
+- Apply the sbobctl enforce artifacts to the disposable container per the
+  Monitor→Audit→Enforce ladder (state file; enforce requires the
+  incident-free audit window): AppArmor (exec/opens allowlist), seccomp
+  (memfd_create EPERM), NetworkPolicy (egress = declared memcache peer
+  only).
+- Assert each harness behavior is BLOCKED for real: /bin/sh exec denied,
+  webshell write denied, C2 connect fails closed, memfd_create EPERM;
+  benign workload unaffected (no false positive); enforcement telemetry
+  alert recorded.
+- docs/php2shell/enforce-evidence.md: per-behavior block table, state-file
+  progression, run URL.
+- **Accept:** all four post-exploit behaviors blocked under Enforce with the
+  benign run green; evidence committed. This closes the "would the
+  compromise have been avoided" claim for scenario B with live-behavior
+  evidence, not just corpus replay.
+
 ## 7. CI lane design (org lessons applied)
 
 - **Expected-verdict assertions, never permanently red lanes:** gates run
@@ -271,6 +339,13 @@ layer's actual identification of the stealer, pre-install.
    Monitor mode must come before Audit and Enforce for exactly this reason.
 3. **DNS-blind egress:** drift rules key on domain resolution; a raw-IP or
    allowlisted-domain beacon is a weaker signal (documented blind spot).
+0. **Scenario B has no supply-chain layer by nature:** the PHP2Shell
+   entry vector is a CVE exploit; no release ever shipped, so no gate,
+   canary or profile could inspect the attacker's artifact. What SBoB
+   offers there is exactly the declared-contract defense: the workload's
+   own behavior is the baseline, post-exploit behavior is drift by
+   definition, and enforcement blocks it regardless of CVE knowledge. The
+   demo states this asymmetry rather than papering over it.
 4. **The adversarial-corpus blind spot (the demo's central honest
    point):** the baseline is derived from upstream's own tests, but a
    compromised release ships whatever corpus the attacker chooses, and code
@@ -287,6 +362,7 @@ layer's actual identification of the stealer, pre-install.
 - OpenSourceMalware: https://opensourcemalware.com/blog/agent-framework-pypi-compromised
 - Aikido: https://www.aikido.dev/blog/two-malicious-agent-framework-releases-hit-pypi-in-33-minutes
 - Upstream (tests vendored under MIT): https://github.com/microsoft/agent-framework
+- PHP2Shell grounding: https://github.com/DevelApp-ai/Software-Bill-of-Behavior/blob/main/docs/php2shell-scenario.md (CVE-2026-109618/109619, watchtowr FAQ, CISA KEV 2026-10-26)
 - SBOB-Forge: https://github.com/DevelApp-ai/SBOB-Forge
 - Software-Bill-of-Behavior: https://github.com/DevelApp-ai/Software-Bill-of-Behavior
 - Adoption guide: https://github.com/DevelApp-ai/SBOB-Forge/blob/main/docs/adoption.md
