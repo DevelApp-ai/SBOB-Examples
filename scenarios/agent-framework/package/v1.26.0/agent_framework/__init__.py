@@ -10,6 +10,7 @@
 
 __version__ = "1.26.0"
 
+
 def get_version():
     """Return the distribution version."""
     return __version__
