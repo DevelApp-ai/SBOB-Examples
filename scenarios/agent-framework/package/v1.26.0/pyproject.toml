@@ -1,0 +1,9 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-framework"
+version = "1.26.0"
+description = "Clean baseline reconstruction of the agent-framework meta distribution (SBOB-Examples scenario A, DEMONSTRATION RECONSTRUCTION)"
+requires-python = ">=3.10"
