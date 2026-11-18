@@ -202,26 +202,18 @@ jobs:
           # step's own budget, most decisive first. Every loop is -e-safe.
           n_memfd=$(sudo grep -c 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null || true)
           echo "::error title=node-memfd-count::node log sbob-memfd records: ${n_memfd:-0}"
-          docker exec "$WORKLOAD_CONTAINER" sh -c 'ls -la /var/tmp/.pwned /var/tmp/.php2shell.php 2>&1' \
-            > /tmp/side.log 2>&1 || true
-          i=0
-          while IFS= read -r line; do
-            i=$((i+1))
-            if [ "$i" -gt 2 ]; then break; fi
-            echo "::error title=side-effect::$(printf '%s' "$line" | head -c 400)"
-          done < /tmp/side.log
-          sudo grep -h '^type=SYSCALL.*key="sbob-' /var/log/audit/audit.log 2>/dev/null | sort -u | head -3 > /tmp/sbob-rec.log || true
+          sudo grep 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null | tail -3 > /tmp/memfd.log || true
           i=0
           while IFS= read -r line; do
             i=$((i+1))
             if [ "$i" -gt 3 ]; then break; fi
-            echo "::error title=sbob-record::$(printf '%s' "$line" | head -c 500)"
-          done < /tmp/sbob-rec.log
-          nb=0; nd=0
-          if [ -f telemetry-run/benign.audit ]; then nb=$(wc -l < telemetry-run/benign.audit); fi
-          if [ -f telemetry-run/drift.audit ]; then nd=$(wc -l < telemetry-run/drift.audit); fi
-          echo "::error title=window-counts::benign=$nb drift=$nd records"
-          grep -E "^behaviors:" workload-run.log 2>/dev/null | head -2 > /tmp/beh.log || true
+            echo "::error title=memfd-record::$(printf '%s' "$line" | head -c 600)"
+          done < /tmp/memfd.log
+          docker exec "$WORKLOAD_CONTAINER" sh -c 'ls -la /var/tmp/.pwned /var/tmp/.php2shell.php 2>&1' \
+            > /tmp/side.log 2>&1 || true
+          echo "::error title=side-effects::$(head -2 /tmp/side.log | tr '\n' '~' | head -c 500)"
+          echo "::error title=capture-lines::$(grep -E '^\[capture\]' workload-run.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"
+          grep -E "^behaviors:" workload-run.log 2>/dev/null | tail -2 > /tmp/beh.log || true
           i=0
           while IFS= read -r line; do
             i=$((i+1))
@@ -406,7 +398,7 @@ jobs:
           # annotation channel: GitHub caps annotations at 10 per step —
           # joined summaries, most decisive first, hard budget of 10
           echo "::error title=fail-lines::$(grep -hE '^FAIL:|^ERROR:' workload-run.log parity-check.log corpus-gate.log api-gate.log live-benign-gate.log live-drift-gate.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"
-          echo "::error title=harness-evidence::$(grep -hE 'FINDING|\[capture\]|\[harness\]|behaviors:|benign:' workload-run.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"
+          echo "::error title=harness-evidence::$(grep -hE 'FINDING|\[capture\]|window bounds' workload-run.log 2>/dev/null | head -10 | tr '\n' '~' | head -c 900)"
           for f in telemetry-run/benign.audit telemetry-run/drift.audit; do
             if [ -s "$f" ]; then
               echo "::error title=window-tail::$f: $(tail -3 "$f" 2>/dev/null | tr '\n' '~' | head -c 700)"
@@ -414,7 +406,7 @@ jobs:
           done
           echo "::error title=audit-tail::$(sudo tail -5 /var/log/audit/audit.log 2>/dev/null | tr '\n' '~' | head -c 700)"
           echo "::error title=loaded-rules::$(sudo auditctl -l 2>&1 | tr '\n' '~' | head -c 700)"
-          sudo grep -h '^type=SYSCALL.*key="sbob-' /var/log/audit/audit.log 2>/dev/null | sort -u | head -3 > /tmp/sbob-records.log || true
+          sudo grep -h '^type=SYSCALL.*key="sbob-' /var/log/audit/audit.log 2>/dev/null | sort -u | tail -3 > /tmp/sbob-records.log || true
           n=0
           while IFS= read -r line; do
             n=$((n+1))

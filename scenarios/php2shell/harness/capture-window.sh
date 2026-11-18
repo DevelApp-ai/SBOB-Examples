@@ -81,6 +81,28 @@ ids_for_window() { # $1=t0 $2=t1 $3=outfile — write full event records
     }' "$AUDIT_LOG" > "$out"
 }
 
+# selector decision trace for the live-fireable leg (rule 100163): one line
+# per sbob-memfd SYSCALL record — timestamp, uid, window verdict, and whether
+# the selector picks it. Debug channel for the node-side attribution model
+# (uid=33 attribution is what ties a node-scoped key to this workload).
+awk -v b0="$B0" -v b1="$B1" -v d0="$D0" -v d1="$D1" '
+  $1 == "type=SYSCALL" && /key="sbob-memfd"/ {
+    ts = $2
+    sub(/^msg=audit\(/, "", ts)
+    sub(/\):$/, "", ts)
+    split(ts, p, ":")
+    tsv = p[1] + 0
+    uid = ""
+    for (i = 3; i <= NF; i++) {
+      if (uid == "" && $i ~ /^uid=/) { uid = substr($i, 5) }
+    }
+    w = "outside"
+    if (tsv >= b0 + 0 && tsv <= b1 + 0) w = "benign"
+    if (tsv >= d0 + 0 && tsv <= d1 + 0) w = "drift"
+    v = (w == "drift" && uid == "33") ? "selected" : "NOT-selected"
+    print "[capture] memfd-trace " ts " uid=" uid " window=" w " " v
+  }' "$AUDIT_LOG"
+
 echo "[capture] benign window: [$B0, $B1]"
 ids_for_window "$B0" "$B1" "$BENIGN_OUT"
 echo "[capture] drift window: [$D0, $D1]"
