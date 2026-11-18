@@ -202,6 +202,10 @@ jobs:
           # step's own budget, most decisive first. Every loop is -e-safe.
           n_memfd=$(sudo grep -c 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null || true)
           echo "::error title=node-memfd-count::node log sbob-memfd records: ${n_memfd:-0}"
+          n_exec=$(sudo grep -c 'key="sbob-exec-php-fpm"' /var/log/audit/audit.log 2>/dev/null || true)
+          n_open=$(sudo grep -c 'key="sbob-open-php-fpm"' /var/log/audit/audit.log 2>/dev/null || true)
+          n_conn=$(sudo grep -c 'key="sbob-connect-php-fpm"' /var/log/audit/audit.log 2>/dev/null || true)
+          echo "::error title=node-leg-counts::node log leg counts: exec=${n_exec:-0} open=${n_open:-0} connect=${n_conn:-0}"
           sudo grep 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null | tail -3 > /tmp/memfd.log || true
           i=0
           while IFS= read -r line; do

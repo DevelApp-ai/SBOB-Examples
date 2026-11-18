@@ -61,6 +61,7 @@ printf '%s\n' "$DRIFT_RESP"
 # so wait well past one flush interval before reading the log back
 sleep 10
 
+echo "[harness] audit log view: $(wc -l < "$AUDIT_LOG") lines / $(wc -c < "$AUDIT_LOG") bytes"
 echo "[harness] drift window bounds: [$D0, $D1] (benign: [$B0, $B1])"
 bash /opt/harness/capture-window.sh "$AUDIT_LOG" "$B0" "$B1" "$OUT/benign.audit" "$D0" "$D1" "$OUT/drift.audit"
 

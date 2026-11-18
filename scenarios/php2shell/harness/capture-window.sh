@@ -5,14 +5,13 @@
 #
 # Extracts the two capture windows from the kernel audit log and writes them
 # in the recorded-corpus record shape:
-#   - SYSCALL records whose key is one of the workload-scoped keys
-#     (sbob-exec-php-fpm / sbob-open-php-fpm / sbob-connect-php-fpm):
-#     the generated audit fragment is exe-scoped to /usr/local/sbin/php-fpm,
-#     so by construction only this container's php-fpm trips them — FROM THE
-#     IN-CONTAINER VANTAGE. From the node-side observer these keys never
-#     match the containerized workload (the node auditd resolves the binary
-#     through the overlay2 path): delta 7 in docs/php2shell/detection-
-#     evidence.md, the finding this scenario records
+#   - SYSCALL records with workload-scoped keys
+#     (sbob-exec-php-fpm / sbob-open-php-fpm / sbob-connect-php-fpm): the
+#     generated audit fragment is exe-scoped to /usr/local/sbin/php-fpm and
+#     the kernel resolves a task's exe path against the TASK ROOT (an
+#     exe="/usr/local/sbin/php-fpm" record for this containerized worker
+#     appears in the node-side log, proven live in this lane), so the keys
+#     tag this workload from the node vantage too
 #   - SYSCALL records with node-scoped signature keys
 #     (sbob-memfd / sbob-module-load / sbob-namespace-change /
 #     sbob-process-tracing) attributed to the workload by uid=33: those keys
@@ -20,10 +19,21 @@
 #     shared node — the harness attributes windows to the workload, exactly
 #     what rulePolicies.processAllowed exemptions do in a real deployment
 #   - the EXECVE / PATH / SOCKADDR records belonging to a selected SYSCALL
-#     event id (same msg=audit(<ts>:<serial>))
+#     event (auditd writes an event's records contiguously, SYSCALL first,
+#     so a single print flag replaces id bookkeeping)
 # CWD / PROCTITLE records are dropped: they are not part of the sbob decoder
 # chain (no rule consumes them), and the recorded corpus carries the same
 # four record types.
+#
+# Implementation note (proven live in this lane): an earlier two-pass
+# selector (id collection into a shell pipeline, then a second awk keyed on
+# the serial numbers) produced empty windows on the runner container in ways
+# that never reproduced with the same mawk binary offline. This selector is
+# single-pass and uses ONLY constructs the memfd-trace proved live on the
+# runner container awk with the exact records: regex-on-$0 key checks,
+# sub()-based timestamp parse, `+ 0` numeric window bounds (bare -v
+# comparisons degrade to string compares on mawk 1.3.4-20200120), and the
+# uid == "33" string test.
 #
 # Field parsing is POSIX awk (mawk-safe: no gawk match() arrays).
 #
@@ -32,58 +42,38 @@ set -euo pipefail
 
 AUDIT_LOG="$1"; B0="$2"; B1="$3"; BENIGN_OUT="$4"; D0="$5"; D1="$6"; DRIFT_OUT="$7"
 
-# --- shared selector: SYSCALL records in [t0,t1] with allowed keys -> ids ---
-sel() { # $1=t0 $2=t1 -> selected event ids on stdout
+# --- single-pass window selector -------------------------------------------
+# One awk pass per window. `printing` carries "current SYSCALL event is
+# selected" across the event's contiguous aux records; a new type=SYSCALL
+# record always re-decides (untagged SYSCALLs reset it through the last
+# pattern). Class checks are regexes against $0; window bounds are forced
+# numeric with `+ 0`.
+cap() { # $1=t0 $2=t1 -> selected records on stdout
   awk -v t0="$1" -v t1="$2" '
-    $1 == "type=SYSCALL" && $2 ~ /^msg=audit\([0-9]/ {
+    $1 == "type=SYSCALL" && /key="sbob-/ {
+      printing = 0
       ts = $2
       sub(/^msg=audit\(/, "", ts)
       sub(/\):$/, "", ts)
       split(ts, p, ":")
       tsv = p[1] + 0
-      # mawk on Debian (1.3.4-20200120, the workload container awk) treats
-      # -v values as pure strings, so a bare `tsv < t0` degrades to a string
-      # compare and the numeric timestamp is mangled through CONVFMT
-      # ("1.79499e+09"), rejecting every in-window record. `+ 0` forces the
-      # numeric comparison on every awk. Proven live in this lane.
-      if (tsv < t0 + 0 || tsv > t1 + 0) next
-      key = ""; uid = ""
+      uid = ""
       for (i = 3; i <= NF; i++) {
-        if (key == "" && $i ~ /^key="sbob-/) {
-          key = $i
-          sub(/^key="/, "", key)
-          sub(/"$/, "", key)
-        }
         if (uid == "" && $i ~ /^uid=/) { uid = substr($i, 5) }
       }
-      if (key == "") next
-      work = (key == "sbob-exec-php-fpm" || key == "sbob-open-php-fpm" || key == "sbob-connect-php-fpm")
-      sig = (key == "sbob-memfd" || key == "sbob-module-load" || \
-             key == "sbob-namespace-change" || key == "sbob-process-tracing")
-      if (work) print p[2]
-      else if (sig && uid == "33") print p[2]
-    }' "$AUDIT_LOG"
-}
-
-ids_for_window() { # $1=t0 $2=t1 $3=outfile — write full event records
-  local t0="$1" t1="$2" out="$3" ids
-  ids=$(sel "$t0" "$t1" | sort -u | tr '\n' ' ')
-  if [ -z "$ids" ]; then
-    : > "$out"
-    return
-  fi
-  awk -v ids="$ids" '
-    BEGIN { n = split(ids, a, " "); for (i = 1; i <= n; i++) want[a[i]] = 1 }
-    $2 ~ /^msg=audit\([0-9]/ {
-      ts = $2
-      sub(/^msg=audit\(/, "", ts)
-      sub(/\):$/, "", ts)
-      split(ts, p, ":")
-      if ($1 == "type=SYSCALL") { if (want[p[2]]) print; next }
-      if ($1 == "type=EXECVE" || $1 == "type=PATH" || $1 == "type=SOCKADDR") {
-        if (want[p[2]]) print
+      if (tsv >= t0 + 0 && tsv <= t1 + 0) {
+        if (/key="sbob-exec-php-fpm"/ || /key="sbob-open-php-fpm"/ || /key="sbob-connect-php-fpm"/) printing = 1
+        else if ((/key="sbob-memfd"/ || /key="sbob-module-load"/ || /key="sbob-namespace-change"/ || /key="sbob-process-tracing"/) && uid == "33") printing = 1
       }
-    }' "$AUDIT_LOG" > "$out"
+      if (printing) print
+      next
+    }
+    ($1 == "type=EXECVE" || $1 == "type=PATH" || $1 == "type=SOCKADDR") {
+      if (printing) print
+      next
+    }
+    $1 == "type=SYSCALL" { printing = 0 }
+  ' "$AUDIT_LOG"
 }
 
 # selector decision trace for the live-fireable leg (rule 100163): one line
@@ -109,9 +99,9 @@ awk -v b0="$B0" -v b1="$B1" -v d0="$D0" -v d1="$D1" '
   }' "$AUDIT_LOG"
 
 echo "[capture] benign window: [$B0, $B1]"
-ids_for_window "$B0" "$B1" "$BENIGN_OUT"
+cap "$B0" "$B1" > "$BENIGN_OUT"
 echo "[capture] drift window: [$D0, $D1]"
-ids_for_window "$D0" "$D1" "$DRIFT_OUT"
+cap "$D0" "$D1" > "$DRIFT_OUT"
 
 echo "[capture] benign records: $(wc -l < "$BENIGN_OUT"), drift records: $(wc -l < "$DRIFT_OUT")"
 echo "[capture] benign key histogram: $(grep -o 'key="sbob-[a-z0-9-]*"' "$BENIGN_OUT" | sort | uniq -c | tr '\n' ' ')"
