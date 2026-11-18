@@ -152,15 +152,19 @@ jobs:
       - name: Run the benign + post-exploit request flows and capture the windows
         run: |
           set -o pipefail
+          rc=0
           docker exec -e AUDIT_LOG=/host-audit/audit.log "$WORKLOAD_CONTAINER" \
-            bash /opt/harness/run-behaviors.sh 2>&1 | tee workload-run.log
+            bash /opt/harness/run-behaviors.sh 2>&1 | tee workload-run.log || rc=$?
+          # even on pre-check failure the windows exist in /opt/telemetry:
+          # always copy them out so the diagnostics can annotate them
           mkdir -p telemetry-run
-          docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/benign.audit" telemetry-run/benign.audit
-          docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/drift.audit" telemetry-run/drift.audit
+          docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/benign.audit" telemetry-run/benign.audit || true
+          docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/drift.audit" telemetry-run/drift.audit || true
           sudo grep -E "^(type=SYSCALL|type=EXECVE|type=PATH|type=SOCKADDR)" /var/log/audit/audit.log \
             | tail -200 > telemetry-run/audit-tail.log || true
-          echo "--- benign window ---"; cat telemetry-run/benign.audit
-          echo "--- drift window ---"; cat telemetry-run/drift.audit
+          echo "--- benign window ---"; cat telemetry-run/benign.audit 2>/dev/null || true
+          echo "--- drift window ---"; cat telemetry-run/drift.audit 2>/dev/null || true
+          exit $rc
 
       - name: Capture parity + safety check (loopback-only, benign purity, all four signatures)
         run: |
@@ -351,3 +355,13 @@ jobs:
               [ -n "$line" ] && echo "::error title=window-tail::$f: $line"
             done < <(tail -20 "$f")
           done
+          # raw sbob-key records from the node log: proves whether the
+          # exe-scoped rules fired for the containerized php-fpm at all,
+          # and what the exe=/PATH fields actually look like node-side
+          sudo grep -h 'key="sbob-' /var/log/audit/audit.log 2>/dev/null \
+            | sort -u | head -8 > /tmp/sbob-records.log || true
+          n=0
+          while IFS= read -r line; do
+            n=$((n+1)); [ $n -gt 8 ] && break
+            echo "::error title=sbob-record::$(printf '%s' "$line" | head -c 600)"
+          done < /tmp/sbob-records.log
