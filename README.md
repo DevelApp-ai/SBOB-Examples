@@ -45,6 +45,9 @@ scenario/            reconstruction of the incident (see safety policy, TDS 4)
   package/v1.26.2/   af_runtime_diag.pth + af_runtime_diag.py reconstruction
   sink/              loopback-only exfil sink (stands in for webhook[.]site)
   fixtures/          synthetic credential tree (no real secrets, ever)
+upstream/corpus-1.26.0/  the REAL microsoft/agent-framework pytest corpus,
+                         vendored at tag python-1.26.0 (MIT) - the baseline
+                         profile is generated from upstream's own tests
 sbobs/               committed, drift-gated SBoB profiles per version
 docs/                TDS, incident map, per-layer evidence docs
 .github/workflows/   supply-chain-gate / runtime-detection / enforce-block lanes
@@ -62,4 +65,5 @@ CI asserts that no non-loopback socket is opened. Details and hard rules:
 - Wiz: [Microsoft agent-framework Compromised: Credential Stealer Targets Azure and CI Pipelines](https://www.wiz.io/blog/malicious-version-of-microsofts-agent-framework-published-to-pypi)
 - OpenSourceMalware: [Official Microsoft agent-framework PyPI package compromised](https://opensourcemalware.com/blog/agent-framework-pypi-compromised)
 - Aikido: [Two malicious agent-framework releases hit PyPI in 33 minutes](https://www.aikido.dev/blog/two-malicious-agent-framework-releases-hit-pypi-in-33-minutes)
+- Upstream: [microsoft/agent-framework](https://github.com/microsoft/agent-framework) (tests vendored under MIT)
 - Tooling: [SBOB-Forge](https://github.com/DevelApp-ai/SBOB-Forge) (generate), [Software-Bill-of-Behavior](https://github.com/DevelApp-ai/Software-Bill-of-Behavior) (validate/diff/transpile/enforce), [adoption guide](https://github.com/DevelApp-ai/SBOB-Forge/blob/main/docs/adoption.md)
