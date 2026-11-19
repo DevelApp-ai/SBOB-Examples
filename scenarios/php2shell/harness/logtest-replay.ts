@@ -63,12 +63,22 @@ function dataOf(resp: unknown): Record<string, unknown> {
   return asRecord(r["data"]) ?? r;
 }
 
+// rule record from data.rule, data.alert.rule, or data.output.rule — the
+// 4.14 session reply nests the matched rule under `output` as an OBJECT
+// (reply shape replica-verified on wazuh-manager 4.14.6:
+//  {data:{alert:true, codemsg:0, output:{decoder, data, rule:{id:"100163"...}}}});
+// the array-of-strings fallback in extractRuleId only covers the CLI text
+// spelling, which the API session reply does not use — without this branch
+// every structured reply extracts as "no rule fired" and drift assertions
+// fail vacuously (the exact defect run 44589490713 tripped)
 function ruleRecordOf(data: Record<string, unknown>): Record<string, unknown> | null {
   const rule = asRecord(data["rule"]);
   if (rule !== null) return rule;
   const alert = asRecord(data["alert"]);
   const alertRule = alert === null ? null : asRecord(alert["rule"]);
-  return alertRule;
+  if (alertRule !== null) return alertRule;
+  const output = asRecord(data["output"]);
+  return output === null ? null : asRecord(output["rule"]);
 }
 
 export function extractRuleId(resp: unknown): string | null {
