@@ -25,7 +25,7 @@ outright.
 
 The bundle is transpiled from the SHA-pinned SBoB repo
 (`DevelApp-ai/Software-Bill-of-Behavior` at
-`1e7c0db71049f950160234804eca301dc6ce3977`, `sbobs/php-fpm.yaml`, slot 1,
+`4bf2eb1d2413de388c10a0c7de38026e07e46fd7`, `sbobs/php-fpm.yaml`, slot 1,
 band `1001xx`), installed into a disposable `wazuh/wazuh-manager:4.14.6`
 (the proven lab-validate pattern), and exercised on two legs:
 
@@ -144,8 +144,9 @@ committed as findings, not papered over:
 
 | item | value |
 |---|---|
-| First green lane run | (stamped after merge — see the run linked on the merging PR) |
-| SBoB toolchain pin | `1e7c0db71049f950160234804eca301dc6ce3977` |
+| First green lane run | https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44591553822 (php-detection, green 2026-11-19) |
+| SBoB toolchain pin | `4bf2eb1d2413de388c10a0c7de38026e07e46fd7` |
 | Manager | `wazuh/wazuh-manager:4.14.6` (disposable, per run) |
 | Telemetry artifacts | `php2shell-telemetry` workflow artifact (benign/drift windows, gate logs) |
-| Follow-ups | M7 (issue #11): the same four behaviors blocked under Enforce (AppArmor/seccomp/NetworkPolicy), `docs/php2shell/enforce-evidence.md` |
+| Red-run iterates (honest history) | 44584677969 / 44586246389: chunked-transport HTTP 400 (root-caused and fixed upstream as SBoB PR #45, explicit `Content-Length`); 44589490713: the harness parsed the 4.14 session reply as "no rule fired" (the matched rule nests under `output` as an object; fixed in `harness/logtest-replay.ts`, replica-verified reply shape) |
+| Follow-ups | M7 (issue #11): the same four behaviors blocked under Enforce (AppArmor/seccomp/NetworkPolicy), `docs/php2shell/enforce-evidence.md`; M9 NGINX2Root (issue #15, blocked on the SBoB wazuh-target fixes landing first) |
