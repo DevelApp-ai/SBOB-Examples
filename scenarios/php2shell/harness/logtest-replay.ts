@@ -161,7 +161,15 @@ async function putLog(
   log: string,
   sessionToken: string | null,
 ): Promise<unknown> {
-  const payload = sessionToken === null ? { log } : { log, token: sessionToken };
+  // wazuh 4.14 LogtestRequest schema: {event, log_format, location, token?}
+  // (same shape as the pinned SBoB repo's scripts/logtest-api.ts — the old
+  // {log} payload is rejected with HTTP 400 "RequestBody is required").
+  // The captured windows are auditd syslog-format lines, so log_format is
+  // "syslog" like the recorded php corpora.
+  const payload =
+    sessionToken === null
+      ? { event: log, log_format: "syslog", location: "sbob-php2shell-live" }
+      : { event: log, log_format: "syslog", location: "sbob-php2shell-live", token: sessionToken };
   const reply = await requestRaw(
     `${api}/logtest`,
     "PUT",
@@ -266,6 +274,11 @@ function parseArgs(argv: readonly string[]): CliConfig | null {
       throw new Error(`unknown option ${a}`);
     }
   }
+  // environment fallbacks — the same contract as the pinned SBoB repo's
+  // scripts/logtest-api.ts (SBOB_WAZUH_API_USER / SBOB_WAZUH_API_PASS)
+  c.api = c.api || process.env["SBOB_WAZUH_API_URL"];
+  c.user = c.user || process.env["SBOB_WAZUH_API_USER"] || "wazuh";
+  c.pass = c.pass ?? process.env["SBOB_WAZUH_API_PASS"];
   if (!c.api || !/^https?:\/\//.test(c.api)) throw new Error("--api <http(s) URL> is required");
   if (!c.file) throw new Error("--file <capture window> is required");
   if (c.mode !== "benign" && c.mode !== "drift") throw new Error("--mode benign|drift is required");
