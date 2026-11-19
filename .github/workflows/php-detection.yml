@@ -51,7 +51,7 @@ env:
   # SHA-pinned toolchain (TDS §7/§8): the SBoB repo providing the php-fpm
   # contract, the transpiler and the proven Stage-1 replay scripts.
   SBOB_REPO: DevelApp-ai/Software-Bill-of-Behavior
-  SBOB_PIN: 1e7c0db71049f950160234804eca301dc6ce3977
+  SBOB_PIN: c8bcd9bdaef0afb2823108c5d6cb6fa7e9b087ae
   # disposable manager (proven lab-validate pattern; 4.x keeps both the
   # wazuh-logtest binary and the PUT /logtest API)
   WAZUH_IMAGE: wazuh/wazuh-manager:4.14.6
