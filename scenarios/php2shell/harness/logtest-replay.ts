@@ -170,11 +170,15 @@ async function putLog(
     sessionToken === null
       ? { event: log, log_format: "syslog", location: "sbob-php2shell-live" }
       : { event: log, log_format: "syslog", location: "sbob-php2shell-live", token: sessionToken };
+  // explicit Content-Length (SBoB PR #45): node otherwise sends
+  // Transfer-Encoding: chunked on a reused keep-alive socket, which the
+  // 4.14 API rejects with HTTP 400 "RequestBody is required"
+  const body = JSON.stringify(payload);
   const reply = await requestRaw(
     `${api}/logtest`,
     "PUT",
-    { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
-    JSON.stringify(payload),
+    { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json", "Content-Length": String(body.length) },
+    body,
   );
   if (reply.status !== 200) {
     throw new Error(`PUT /logtest failed (HTTP ${reply.status}): ${reply.body.slice(0, 200)}`);

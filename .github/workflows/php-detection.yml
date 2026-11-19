@@ -51,7 +51,7 @@ env:
   # SHA-pinned toolchain (TDS §7/§8): the SBoB repo providing the php-fpm
   # contract, the transpiler and the proven Stage-1 replay scripts.
   SBOB_REPO: DevelApp-ai/Software-Bill-of-Behavior
-  SBOB_PIN: c8bcd9bdaef0afb2823108c5d6cb6fa7e9b087ae
+  SBOB_PIN: 4bf2eb1d2413de388c10a0c7de38026e07e46fd7
   # disposable manager (proven lab-validate pattern; 4.x keeps both the
   # wazuh-logtest binary and the PUT /logtest API)
   WAZUH_IMAGE: wazuh/wazuh-manager:4.14.6
@@ -347,15 +347,21 @@ jobs:
             --api "$WAZUH_API" \
             --file telemetry-run/benign.audit --mode benign --repeats 8 2>&1 | tee live-benign-gate.log
 
-      - name: "Live gate — drift fires all four legs (100111/100121/100131/100163) + sustained children"
+      # The LIVE window carries only the node-scoped memfd record (delta 7:
+      # the exe-scoped legs cannot tag a containerized workload observed
+      # node-side), so the live drift gate asserts the honest shape: 100163
+      # fires, the exe-scoped legs correctly stay absent, and the sustained
+      # escalation stays unproven (no taggable repetition) — sustained firing
+      # is proven on the RECORDED corpus by the api gate above (leg 1).
+      - name: "Live gate — drift fires the node-scoped memfd signature (100163); exe-scoped legs stay absent (delta 7)"
         run: |
           set -o pipefail
           SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
             node scenarios/php2shell/harness/logtest-replay.ts \
             --api "$WAZUH_API" \
             --file telemetry-run/drift.audit --mode drift \
-            --expect 100111,100121,100131,100163 \
-            --expect-sustained 100112,100122,100132 \
+            --expect 100163 \
+            --expect-absent 100111,100121,100131 \
             --repeats 8 2>&1 | tee live-drift-gate.log
 
       - name: Verdict summary
