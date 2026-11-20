@@ -19,6 +19,7 @@
 //        analog of scenario B's delta 7), recorded as a committed finding.
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpExchange;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -35,14 +36,14 @@ public class App {
         System.out.println("java-service fixture up on 127.0.0.1:8080");
     }
 
-    private static void reply(HttpExchange ex, String body) throws Exception {
+    private static void reply(HttpExchange ex, String body) throws IOException {
         byte[] b = body.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", "text/plain");
         ex.sendResponseHeaders(200, b.length);
         try (OutputStream os = ex.getResponseBody()) { os.write(b); }
     }
 
-    private static void benign(HttpExchange ex) throws Exception {
+    private static void benign(HttpExchange ex) throws IOException {
         StringBuilder out = new StringBuilder("benign: begin\n");
         // 1. app-file read (declared: opens[] /app/* read)
         byte[] index = Files.readAllBytes(Path.of("/app/index.html"));
@@ -71,12 +72,12 @@ public class App {
         reply(ex, out.toString());
     }
 
-    private static void behaviors(HttpExchange ex) throws Exception {
+    private static void behaviors(HttpExchange ex) throws IOException {
         StringBuilder out = new StringBuilder("behaviors: begin\n");
         // b1: shell spawn from the JVM — execs[] declares only the JVM itself
         try {
             Process p = new ProcessBuilder("/bin/sh", "-c", "id > /var/tmp/.pwned").start();
-            p.waitFor();
+            try { p.waitFor(); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             out.append("behaviors: b1 /bin/sh spawn done (rc=").append(p.exitValue()).append(")\n");
         } catch (Exception e) {
             out.append("behaviors: b1 /bin/sh spawn failed: ").append(e.getMessage()).append("\n");
