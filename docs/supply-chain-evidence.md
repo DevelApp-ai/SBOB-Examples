@@ -75,11 +75,12 @@ the ACTUAL first-run verdicts per the expected-verdict discipline).
 
 - Baseline: sbobforge profile of the reconstructed clean corpus
   (`upstream/corpus-1.26.0/`), converted to the sbob registry dialect.
-  The reconstruction manifest declares the SUT's own shipped placeholders
-  (`pathPolicies` for the config/session state paths, `netPolicies` for the
-  declared memcache notify peer) so the baseline lifts the package's
-  declared behavior; the attacker extension's dynamic sites get no such
-  courtesy, which is the point.
+  The reconstruction manifest declares the SUT's own memcache notify peer
+  (`netPolicies`); the corpus tests carry parametrized entries over the
+  SUT's declared config/session locations (the shape the forge fixture
+  grammar lifts), while the SUT's identifier-parameterized open shapes
+  stay quarantined coverage rows. The attacker extension's dynamic sites
+  get no such courtesy, which is the point.
 - Candidates: corpus + watermarked attacker-corpus extension
   (`upstream/tests-attack/v1.26.1/`, `v1.26.2/`) per version.
 - Delta reports are uploaded per run as lane artifacts and the observed
@@ -157,6 +158,17 @@ the ACTUAL first-run verdicts per the expected-verdict discipline).
    without declared placeholder policies; publisher-side generated
    profiles therefore UNDER-report exactly the harvesting surface the
    canary observes.
+3a. **Cross-tool defect (observed, recorded for the forge/SBoB roadmaps):
+   the tier-P identifier lift emits opens with empty flags.** Lifting a
+   quarantined open through a `pathPolicies` identifier match produces
+   `flags: []` (the quarantine loses the literal mode argument), which the
+   sbobctl schema rejects at the first diff (`ERR_SCHEMA_INVALID:
+   spec.opens[0].flags: must not be empty (flags is required per spec
+   4.6)`). The two honest options at the source are forge-side (carry the
+   resolved literal mode's flags into the quarantined candidate) or
+   dialect-side (spec stance on empty flags); the M2 corpus avoids the
+   shape by lifting declared locations through parametrized literal-mode
+   corpus entries, and the defect is recorded here instead of hidden.
 4. **Single-window canaries derive NOTHING unless repeated**: a
    minute-scale canary with one start yields one-offs; the observation
    cadence is part of the canary design, not an optional detail.

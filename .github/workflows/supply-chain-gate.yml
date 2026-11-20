@@ -341,7 +341,7 @@ jobs:
       - name: Control — second clean canary must diff CLEAN (exit 0)
         run: |
           set -euo pipefail
-          trap 'rc=$?; echo "::error::Control canary failed at line $LINENO (exit $rc)"' ERR
+          trap 'rc=$?; echo "::error::Control canary failed at line $LINENO (exit $rc)"; if [ -f work-evidence/control-report.json ]; then r=$(head -c 3000 work-evidence/control-report.json); echo "::error::control report: ${r//$'"'"'\n'"'"'/%0A}"; fi' ERR
           T1=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           echo "[gate-c] control window starts at $T1"
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
@@ -372,7 +372,7 @@ jobs:
       - name: 'C1: 1.26.1 canary — profile, diff vs baseline, record verdict'
         run: |
           set -euo pipefail
-          trap 'rc=$?; echo "::error::C1 canary failed at line $LINENO (exit $rc)"' ERR
+          trap 'rc=$?; echo "::error::C1 canary failed at line $LINENO (exit $rc)"; if [ -f work-evidence/mal1-report.json ]; then r=$(head -c 3000 work-evidence/mal1-report.json); echo "::error::C1 report: ${r//$'"'"'\n'"'"'/%0A}"; fi' ERR
           T2=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
             python3 "$AF_SCENARIO/harness/canary-run.py" \
@@ -402,7 +402,7 @@ jobs:
       - name: 'C2: 1.26.2 canary — profile, diff vs baseline, record verdict'
         run: |
           set -euo pipefail
-          trap 'rc=$?; echo "::error::C2 canary failed at line $LINENO (exit $rc)"' ERR
+          trap 'rc=$?; echo "::error::C2 canary failed at line $LINENO (exit $rc)"; if [ -f work-evidence/mal2-report.json ]; then r=$(head -c 3000 work-evidence/mal2-report.json); echo "::error::C2 report: ${r//$'"'"'\n'"'"'/%0A}"; fi' ERR
           T3=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
             python3 "$AF_SCENARIO/harness/canary-run.py" \
