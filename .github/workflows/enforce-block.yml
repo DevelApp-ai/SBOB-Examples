@@ -79,7 +79,9 @@ env:
   AF_EXPECT_UNDECLARED_REJECT_GTE: "1"
   AF_EXPECT_DECLARED_REJECT_DELTA: "0"
   AF_EXPECT_CLEAN_REJECT_DELTA: "0"
-  AF_EXPECT_EXITS_ZERO: "1"
+  # recorded from the lane's actual green runs: the swallowed refusal keeps
+  # the interpreter start at exit 0 (faithful reconstruction)
+  AF_EXPECT_INTERPRETER_RC: "0"
 
 jobs:
   enforce-block:
@@ -146,7 +148,7 @@ jobs:
             -e AF_EXPECT_CONTRAST_RECEIPTS -e AF_EXPECT_ENFORCED_RECEIPTS \
             -e AF_EXPECT_CLEAN_RECEIPTS -e AF_EXPECT_ENFORCED_REJECT_GTE \
             -e AF_EXPECT_UNDECLARED_REJECT_GTE -e AF_EXPECT_DECLARED_REJECT_DELTA \
-            -e AF_EXPECT_CLEAN_REJECT_DELTA -e AF_EXPECT_EXITS_ZERO \
+            -e AF_EXPECT_CLEAN_REJECT_DELTA -e AF_EXPECT_INTERPRETER_RC \
             "$ENFORCE_IMAGE" \
             python3 /src/scenarios/agent-framework/harness/enforce_orchestrator.py \
               --repo /src --work /opt/af-work \

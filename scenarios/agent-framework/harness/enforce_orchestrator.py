@@ -80,7 +80,7 @@ ENV_DEFAULTS = {
     "AF_EXPECT_UNDECLARED_REJECT_GTE": "1",
     "AF_EXPECT_DECLARED_REJECT_DELTA": "0",
     "AF_EXPECT_CLEAN_REJECT_DELTA": "0",
-    "AF_EXPECT_EXITS_ZERO": "1",
+    "AF_EXPECT_INTERPRETER_RC": "0",
 }
 for _k, _v in ENV_DEFAULTS.items():
     os.environ.setdefault(_k, _v)
@@ -308,8 +308,8 @@ def main():
              data["receipts_new"]),
             ("guard quiet", data["guard_violations"] == [], data["guard_violations"]),
             ("interpreter exit %s (stealer swallows the refused POST)"
-             % expect("AF_EXPECT_EXITS_ZERO"),
-             data["rc"] == int(expect("AF_EXPECT_EXITS_ZERO")), data["rc"]),
+             % expect("AF_EXPECT_INTERPRETER_RC"),
+             data["rc"] == int(expect("AF_EXPECT_INTERPRETER_RC")), data["rc"]),
             ("REJECT counter >= %s (kernel-level proof of the blocked POST)"
              % expect("AF_EXPECT_ENFORCED_REJECT_GTE"),
              d >= int(expect("AF_EXPECT_ENFORCED_REJECT_GTE")), d),
@@ -320,7 +320,7 @@ def main():
     banner("Leg 8: clean 1.26.0 under enforcement (no false positive)")
     before = reject_counter()
     data = run_as_workload(
-        ["--mode", "exercise", "--version", "1.26.0",
+        ["--mode", "exercise", "--version", "v1.26.0",
          "--work-dir", os.path.join(work, "clean-1.26.0"),
          "--home", fx["home"], "--proc-root", fx["proc"],
          "--receipts", receipts, "--sink-url", sink_url, "--timeout", "6"],
@@ -331,8 +331,8 @@ def main():
          data["receipts_new"] == int(expect("AF_EXPECT_CLEAN_RECEIPTS")),
          data["receipts_new"]),
         ("guard quiet", data["guard_violations"] == [], data["guard_violations"]),
-        ("interpreter exit %s" % expect("AF_EXPECT_EXITS_ZERO"),
-         data["rc"] == int(expect("AF_EXPECT_EXITS_ZERO")), data["rc"]),
+        ("interpreter exit %s" % expect("AF_EXPECT_INTERPRETER_RC"),
+         data["rc"] == int(expect("AF_EXPECT_INTERPRETER_RC")), data["rc"]),
         ("REJECT counter delta == %s (legitimate startup untouched)"
          % expect("AF_EXPECT_CLEAN_REJECT_DELTA"),
          d == int(expect("AF_EXPECT_CLEAN_REJECT_DELTA")), d),
