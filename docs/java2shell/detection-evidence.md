@@ -78,13 +78,25 @@ is stated, not hidden.
 
 ## Run evidence
 
-<!-- STAMP: record the first fully green java-detection run here on merge,
-     with the run URL, in the same pattern as the other evidence docs:
-     | gate | verdict | run |
-     (local pre-push proof: java-service.yaml transpiles at pin 4bf2eb1d —
-     slot 3, rules 100300/100311/100312/100320/100321/100322/100330/100331/
-     100332/…/100363, audit keys sbob-{exec,open,connect}-java-service +
-     node-scoped signature keys; harness scripts syntax-checked) -->
+<!-- STAMP: recorded from the lane's fully green run
+     https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44828736662
+     (java-detection):
+| gate | verdict | detail |
+|------|---------|--------|
+| transpile + audit fragment load | PASS | slot 3 bundle at pin 4bf2eb1d; rules loaded node-side (exe parent dir staged for the loader) |
+| workload capture + parity/safety | PASS | b1-b3 side effects present (.pwned, shell.jsp, C2 stand-in callback logged), b4 expected-silent, loopback-only sockets, benign drift-free |
+| corpus-benign | PASS | java-benign.audit ×8 in one session: zero alerts |
+| corpus-drift | PASS | 100311 + 100321 + 100331 fired; overlays/signatures absent; sustained 100312 + 100322 + 100332 fired on the ×8 session replay |
+| live-benign / live-drift | PASS | live windows assert the honest node-side shape (zero drift alerts; delta-7 analog recorded) |
+
+Local pre-push proof: java-service.yaml transpiles at pin 4bf2eb1d — slot 3,
+rules 100300/100311/100312/100320/100321/100322/100330/100331/100332/…/100363,
+audit keys sbob-{exec,open,connect}-java-service + node-scoped signature keys;
+harness scripts syntax-checked. Lane iterations recorded: 44826642096 (base
+image openjdk:17-slim retired → eclipse-temurin:17-jdk), 44827112149 (COPY
+paths vs build context), 44827599012 (useradd uid-1000 collision → reuse
+ubuntu), 44828132299 (HttpHandler throws IOException only), 44828736618→OK
+(auditctl exe= parent dir ENOENT → staged). -->
 
 Lane artifacts on every run: `java2shell-telemetry` (transpile log, build log,
 workload run log, parity check, captured windows, gate logs).
