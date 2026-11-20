@@ -280,18 +280,6 @@ jobs:
             --expect-sustained 100412,100422,100432 \
             --repeats 8 2>&1 | tee corpus-drift-gate.log
 
-      - name: "Corpus gate — host-scope escape fires 100511/100521/100501 (+ sustained children)"
-        run: |
-          set -o pipefail
-          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
-            node scenarios/nginx2root/harness/logtest-replay.ts \
-            --api "$WAZUH_API" \
-            --file scenarios/nginx2root/telemetry/host-escape.audit \
-            --mode drift \
-            --expect 100511,100521,100501 \
-            --expect-sustained 100512,100522 \
-            --repeats 8 2>&1 | tee corpus-escape-gate.log
-
       - name: "Live gate — benign telemetry silent (zero alerts)"
         run: |
           set -o pipefail
@@ -318,6 +306,38 @@ jobs:
               --api "$WAZUH_API" \
               --file telemetry-run/drift.audit --mode benign --repeats 8 2>&1 | tee live-drift-gate.log
           fi
+
+      # The opens base rules match on record type, not key, so with both bundles
+      # installed the lowest-slot open rule (100421) shadows the host one
+      # (100521) — observed on run 44833195857 and recorded as a finding. In
+      # production each node runs its own workload's rules (agent groups), so
+      # the escape gate runs against the host-only ruleset, swapped in here.
+      - name: "Swap manager to the host-only ruleset for the escape gate"
+        run: |
+          docker exec "$WAZUH_CONTAINER" rm -f /var/ossec/etc/rules/100400_nginx-worker_linux.xml
+          docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control restart 2>&1 | tee restart2.log || true
+          code=000
+          for i in $(seq 1 60); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "$WAZUH_API" || true)
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "manager API up after host-only swap (HTTP $code)"; break; fi
+            sleep 5
+          done
+          [ "$code" = "000" ] && { echo "manager API did not come back after the swap"; exit 1; }
+          docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control status 2>/dev/null | grep -q "analysisd.*running" \
+            || { echo "analysisd not running after swap"; exit 1; }
+          echo "host-only ruleset loaded"
+
+      - name: "Corpus gate — host-scope escape fires 100511/100521/100501 (+ sustained children)"
+        run: |
+          set -o pipefail
+          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+            node scenarios/nginx2root/harness/logtest-replay.ts \
+            --api "$WAZUH_API" \
+            --file scenarios/nginx2root/telemetry/host-escape.audit \
+            --mode drift \
+            --expect 100511,100521,100501 \
+            --expect-sustained 100512,100522 \
+            --repeats 8 2>&1 | tee corpus-escape-gate.log
 
       - name: Verdict summary
         if: always()
