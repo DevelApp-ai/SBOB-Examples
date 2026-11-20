@@ -175,8 +175,13 @@ jobs:
           docker exec -e ENFORCE_OUT=/opt/enforce "$WORKLOAD_CONTAINER" \
             bash /opt/harness/run-enforce.sh 2>&1 | tee php-enforce-demo.log
           mkdir -p enforce-run
-          docker cp "$WORKLOAD_CONTAINER:/opt/enforce/verdicts.json" enforce-run/verdicts.json
-          docker cp "$WORKLOAD_CONTAINER:/opt/enforce/sbob-enforce.log" enforce-run/sbob-enforce.log 2>/dev/null || touch enforce-run/sbob-enforce.log
+          # read via docker exec cat: docker cp path resolution over a tmpfs
+          # mount proved unreliable (run 44819834236: file visible in-container,
+          # cp reported not found)
+          docker exec "$WORKLOAD_CONTAINER" cat /opt/enforce/verdicts.json > enforce-run/verdicts.json \
+            || { echo "::error title=php-enforce::verdicts.json not readable in container"; exit 1; }
+          docker exec "$WORKLOAD_CONTAINER" cat /opt/enforce/sbob-enforce.log > enforce-run/sbob-enforce.log 2>/dev/null \
+            || touch enforce-run/sbob-enforce.log
           grep -q "^M7-VERDICT overall=PASS" php-enforce-demo.log \
             || { echo "::error title=php-enforce::overall verdict is not PASS (see php-enforce-demo.log + enforce-run/verdicts.json)"; exit 1; }
           {
