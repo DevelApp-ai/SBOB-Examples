@@ -153,6 +153,7 @@ jobs:
             --tmpfs /run \
             --tmpfs /tmp \
             --tmpfs /var/lib/php/sessions \
+            --tmpfs /opt/enforce \
             --security-opt "seccomp=$GITHUB_WORKSPACE/$SECCOMP_PROFILE" \
             -v /dev/null:/bin/sh \
             "$ENFORCE_IMAGE"

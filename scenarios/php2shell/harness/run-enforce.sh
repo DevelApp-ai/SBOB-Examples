@@ -39,6 +39,7 @@ reject_pkts() { # REJECT rule packet counter of the egress chain (exact, no unit
 
 echo "[enforce] 1. applying NetworkPolicy egress semantics (uid 33 = www-data workers):"
 echo "[enforce]    allowlist = 10.96.100.10/32 TCP 11211 (declared memcache peer); all else REJECT"
+command -v iptables >/dev/null 2>&1 || { echo "FAIL: iptables missing from the workload image (M7 lane requires it)"; exit 1; }
 iptables -N SBOB-EGRESS-ENFORCE 2>/dev/null || true
 iptables -F SBOB-EGRESS-ENFORCE
 iptables -A SBOB-EGRESS-ENFORCE -d 10.96.100.10/32 -p tcp --dport 11211 -j ACCEPT
@@ -46,6 +47,13 @@ iptables -A SBOB-EGRESS-ENFORCE -j REJECT --reject-with icmp-port-unreachable
 iptables -C OUTPUT -m owner --uid-owner 33 -j SBOB-EGRESS-ENFORCE 2>/dev/null \
   || iptables -I OUTPUT 1 -m owner --uid-owner 33 -j SBOB-EGRESS-ENFORCE
 iptables -L SBOB-EGRESS-ENFORCE -n -v -x | sed 's/^/[enforce]    /'
+iptables -C OUTPUT -m owner --uid-owner 33 -j SBOB-EGRESS-ENFORCE 2>/dev/null \
+  || { echo "FAIL: uid-33 egress jump rule not installed in OUTPUT"; exit 1; }
+# the C2 stand-in listener MUST be up, so the b3 block is proven at the policy
+# layer, not by an absent listener
+ss -lnt 2>/dev/null | grep -q ':4444' \
+  || { echo "FAIL: C2 stand-in listener 127.0.0.1:4444 not up (block would be unprovable)"; exit 1; }
+echo "[enforce]    C2 stand-in listener up on 127.0.0.1:4444 (block will be proven at the policy layer)"
 REJECT_BEFORE=$(reject_pkts); REJECT_BEFORE=${REJECT_BEFORE:-0}
 echo "[enforce] REJECT counter before drift flow: $REJECT_BEFORE"
 
@@ -57,6 +65,13 @@ echo "[enforce] 3. benign flow under enforcement (must be UNAFFECTED — no fals
 rm -f /var/lib/php/sessions/sess_*
 BENIGN=$(fcgi benign.php) || BENIGN="___fcgi-request-failed"
 printf '%s\n' "$BENIGN" | sed 's/^/[enforce]    /'
+# declared write path must be writable for the workload uid (33): the tmpfs at
+# /var/lib/php/sessions is the only writable path under the read-only rootfs
+SESS_WRITE=$(setpriv --reuid 33 --regid 33 --clear-groups \
+  php -r 'file_put_contents("/var/lib/php/sessions/.enforce-probe","x"); echo is_file("/var/lib/php/sessions/.enforce-probe") ? "WRITE-OK" : "WRITE-FAIL";' 2>/dev/null) \
+  || SESS_WRITE="probe-failed"
+rm -f /var/lib/php/sessions/.enforce-probe 2>/dev/null || true
+echo "[enforce]    uid-33 write probe on the declared write path: $SESS_WRITE"
 
 echo "[enforce] 4. post-exploit flow under enforcement (each behavior must be BLOCKED)"
 DRIFT=$(fcgi behaviors.php) || DRIFT="___fcgi-request-failed"
@@ -86,7 +101,8 @@ printf '%s' "$BENIGN" | grep -q 'benign: read [1-9]' && b_read=1
 printf '%s' "$BENIGN" | grep -q 'benign: session hits' && b_sess=1
 printf '%s' "$BENIGN" | grep -q 'benign: resolver line' && b_res=1
 printf '%s' "$BENIGN" | grep -q 'benign: memcache peer 10.96.100.10:11211 connected' && b_mem=1
-check "benign-unaffected" "read=$b_read session=$b_sess resolv=$b_res memcache-egress-allowed=$b_mem" \
+[ "$SESS_WRITE" = "WRITE-OK" ] && b_sess=1
+check "benign-unaffected" "read=$b_read session=$b_sess declared-write-probe=$SESS_WRITE resolv=$b_res memcache-egress-allowed=$b_mem" \
   "$([ $b_read -eq 1 ] && [ $b_sess -eq 1 ] && [ $b_res -eq 1 ] && [ $b_mem -eq 1 ] && echo 1 || echo 0)"
 
 # b1: /bin/sh spawn denied (exec allowlist: php-fpm only) — shell masked, no side effect
