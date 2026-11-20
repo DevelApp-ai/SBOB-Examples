@@ -131,6 +131,11 @@ jobs:
       - name: Load the SBoB audit fragment into the node kernel
         run: |
           sudo auditctl -D 2>/dev/null || true
+          # the kernel resolves exe= filters against the node filesystem at
+          # rule-add time: the parent directory must exist (ENOENT otherwise;
+          # the exe-scoped keys still cannot tag the containerized JVM —
+          # overlay2 paths, the delta-7-analog — this only satisfies the loader)
+          sudo mkdir -p /opt/java/openjdk/bin
           sudo auditctl -R dist/java/wazuh/audit/sbob/java-service.rules
           sudo auditctl -l
           # emission probe: the node-scoped memfd signature rule has no exe
