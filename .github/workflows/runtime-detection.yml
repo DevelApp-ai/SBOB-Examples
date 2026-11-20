@@ -35,6 +35,7 @@ on:
       - "scenarios/agent-framework/telemetry/**"
       - "scenarios/agent-framework/harness/**"
       - ".github/workflows/runtime-detection.yml"
+      - "docs/agent-framework/runtime-evidence.md"
   workflow_dispatch:
 
 permissions:
@@ -180,11 +181,24 @@ jobs:
             echo "::error title=ruleset-load::API probe failed (code=$code). status: $(printf '%s' "$status_out" | tr '\n' '~' | head -c 600). ossec.log: $(printf '%s' "$ossec_tail" | tr '\n' '~' | head -c 600)"
             exit 1
           fi
-          printf '%s\n' "$status_out" | grep -E "^wazuh-analysisd is running" >/dev/null \
-            || { echo "FAIL: analysisd is NOT running (anchored grep: 'is running' line)";
-                 echo "wazuh-control status: $status_out";
-                 echo "::error title=ruleset-load::analysisd not running. status: $(printf '%s' "$status_out" | tr '\n' '~' | head -c 600). ossec.log: $(printf '%s' "$ossec_tail" | tr '\n' '~' | head -c 600)";
-                 exit 1; }
+          # analysisd may still be finishing its restart when the API answers:
+          # poll the ANCHORED 'is running' line for up to 90s (the first lane
+          # run failed this gate once on a restart race; re-observed as flake)
+          an_ok=0
+          for i in $(seq 1 18); do
+            status_out=$(docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control status 2>&1 || true)
+            if printf '%s\n' "$status_out" | grep -E "^wazuh-analysisd is running" >/dev/null; then
+              an_ok=1; break
+            fi
+            sleep 5
+          done
+          if [ "$an_ok" -ne 1 ]; then
+            ossec_tail=$(docker exec "$WAZUH_CONTAINER" sh -c 'tail -8 /var/ossec/logs/ossec.log' 2>&1 || true)
+            echo "FAIL: analysisd is NOT running (anchored grep: 'is running' line)"
+            echo "wazuh-control status: $status_out"
+            echo "::error title=ruleset-load::analysisd not running. status: $(printf '%s' "$status_out" | tr '\n' '~' | head -c 600). ossec.log: $(printf '%s' "$ossec_tail" | tr '\n' '~' | head -c 600)"
+            exit 1
+          fi
           echo "analysisd running with the bundle loaded"
           echo "::notice title=ruleset-load::bundle loads clean on $WAZUH_IMAGE (analysisd -t silent, analysisd running)"
 
