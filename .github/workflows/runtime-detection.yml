@@ -172,13 +172,19 @@ jobs:
             if [ "$code" != "000" ] && [ -n "$code" ]; then echo "manager API up after restart (HTTP $code)"; break; fi
             sleep 5
           done
+          status_out=$(docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control status 2>&1 || true)
+          ossec_tail=$(docker exec "$WAZUH_CONTAINER" sh -c 'tail -8 /var/ossec/logs/ossec.log' 2>&1 || true)
           if [ "$code" = "000" ] || [ -z "$code" ]; then
             echo "FAIL: manager API did not come back after the bundle install"
+            echo "wazuh-control status: $status_out"
+            echo "::error title=ruleset-load::API probe failed (code=$code). status: $(printf '%s' "$status_out" | tr '\n' '~' | head -c 600). ossec.log: $(printf '%s' "$ossec_tail" | tr '\n' '~' | head -c 600)"
             exit 1
           fi
-          docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control status 2>/dev/null \
-            | grep -E "^wazuh-analysisd is running" >/dev/null \
-            || { echo "FAIL: analysisd is NOT running (anchored grep: 'is running' line)"; exit 1; }
+          printf '%s\n' "$status_out" | grep -E "^wazuh-analysisd is running" >/dev/null \
+            || { echo "FAIL: analysisd is NOT running (anchored grep: 'is running' line)";
+                 echo "wazuh-control status: $status_out";
+                 echo "::error title=ruleset-load::analysisd not running. status: $(printf '%s' "$status_out" | tr '\n' '~' | head -c 600). ossec.log: $(printf '%s' "$ossec_tail" | tr '\n' '~' | head -c 600)";
+                 exit 1; }
           echo "analysisd running with the bundle loaded"
           echo "::notice title=ruleset-load::bundle loads clean on $WAZUH_IMAGE (analysisd -t silent, analysisd running)"
 
