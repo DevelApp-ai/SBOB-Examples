@@ -233,6 +233,7 @@ jobs:
           open("work/b1-verdict.txt", "w").write(str(r.get("verdict")))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
               fh.write(f"Gate B: B1 (1.26.1) verdict {r.get('verdict')}, score {r.get('score')}\n")
+          print(f"::notice::Gate B: B1 (1.26.1) verdict {r.get('verdict')}, score {r.get('score')}")
           PY
 
       - name: 'B2: 1.26.2 — generate, convert, diff, record verdict'
@@ -255,6 +256,7 @@ jobs:
           open("work/b2-verdict.txt", "w").write(str(r.get("verdict")))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
               fh.write(f"Gate B: B2 (1.26.2) verdict {r.get('verdict')}, score {r.get('score')}\n")
+          print(f"::notice::Gate B: B2 (1.26.2) verdict {r.get('verdict')}, score {r.get('score')}")
           PY
 
       - name: Assert recorded Gate B verdicts (pinned after first honest run)
@@ -373,6 +375,7 @@ jobs:
           print("[gate-c] CONTROL PASS: clean canary run-to-run delta is 0 (verdict", r.get("verdict"), ")")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
               fh.write(f"Gate C: control (clean vs clean) delta 0, verdict {r.get('verdict')} — observer pipeline deterministic\n")
+          print(f"::notice::Gate C: CONTROL delta 0, verdict {r.get('verdict')}")
           PY
 
       - name: 'C1: 1.26.1 canary — profile, diff vs baseline, record verdict'
@@ -405,6 +408,7 @@ jobs:
           open("work-evidence/c1-verdict.txt", "w").write(str(r.get("verdict")))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
               fh.write(f"Gate C: C1 (1.26.1 canary) verdict {r.get('verdict')}, score {r.get('score')}\n")
+          print(f"::notice::Gate C: C1 (1.26.1 canary) verdict {r.get('verdict')}, score {r.get('score')}")
           PY
 
       - name: 'C2: 1.26.2 canary — profile, diff vs baseline, record verdict'
@@ -437,6 +441,7 @@ jobs:
           open("work-evidence/c2-verdict.txt", "w").write(str(r.get("verdict")))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
               fh.write(f"Gate C: C2 (1.26.2 canary) verdict {r.get('verdict')}, score {r.get('score')}\n")
+          print(f"::notice::Gate C: C2 (1.26.2 canary) verdict {r.get('verdict')}, score {r.get('score')}")
           PY
 
       - name: 'Canary honesty floor — the diffs must SCORE'
@@ -454,6 +459,7 @@ jobs:
               score = r.get("score", 0)
               assert score >= 10, f"{name} scored {score} — below the advisory threshold; the honest floor is missing: {r}"
               print(f"[gate-c] honesty floor PASS: {name} scored {score}")
+              print(f"::notice::Gate C: honesty floor PASS: {name} scored {score}")
           PY
 
       - name: Observer teardown (disposable node hygiene)
