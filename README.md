@@ -82,6 +82,13 @@ not papered over ([docs/TDS.md](docs/TDS.md), limitation 9.0).
 |---|---------|----------------------|
 | 1 | **Runtime detection** | A Java 17 service fixture runs the four post-RCE behaviors for real inside a disposable container; the transpiled bundle (slot 3) fires the mapped drift rules — 100311 (shell exec), 100321 (webshell write), 100331 (C2 connect) — plus sustained children 100312/100322/100332 on the session replay; benign stays silent. The in-JVM `defineClass` leg is recorded as expected-silent (committed finding). Issue #14, evidence: [docs/java2shell/detection-evidence.md](docs/java2shell/detection-evidence.md) |
 
+## Scenario D: NGINX2Root (CVE-2026-123007 + kernel SCTP LPE chain)
+
+| # | Scope | What the demo proves |
+|---|---|---|
+| 1 | worker detection (slot 4) | The post-RCE chain runs for real as the nginx worker: 100411 (shell exec), 100421 + overlay 100401 (recon reads incl. `/etc/shadow`), 100431 (C2 connect), sustained children on the session replay; benign silent |
+| 2 | host signature + escape (slot 5) | first SCTP socket autoloads the sctp module → host-scope module-load 100460; the post-escape root shell shape fires host-scope 100511/100521/100501 on the recorded corpus. The kernel LPE work itself is invisible to userspace audit — committed finding. Issue #15, evidence: [docs/nginx2root/detection-evidence.md](docs/nginx2root/detection-evidence.md) |
+
 ## Run the demos
 
 Everything is loopback-only; the CI asserts that no non-loopback socket is
@@ -107,6 +114,7 @@ The layer lanes run in CI on push/PR (watch them under
 | Scenario B: PHP2Shell detection | `php-detection.yml` | rules 100111/100121/100131/100163 fire on live post-exploit behaviors — [docs/php2shell/detection-evidence.md](docs/php2shell/detection-evidence.md) |
 | Scenario B: PHP2Shell enforcement | `php-enforce.yml` | all four post-exploit behaviors blocked live under Enforce, benign unaffected — [docs/php2shell/enforce-evidence.md](docs/php2shell/enforce-evidence.md) |
 | Scenario C: Java2Shell detection | `java-detection.yml` | 100311/100321/100331 fire on the harness corpus, sustained children via session replay, benign silent — [docs/java2shell/detection-evidence.md](docs/java2shell/detection-evidence.md) |
+| Scenario D: NGINX2Root detection | `nginx-detection.yml` | worker 100411/100421/100431 + 100401, host module-load 100460 + escape 100511/100521/100501, benign silent — [docs/nginx2root/detection-evidence.md](docs/nginx2root/detection-evidence.md) |
 
 The full incident narrative — real 2026-11-17 timeline side-by-side with the
 demo, each layer mapped to "what would have happened when", limitations

@@ -1,0 +1,33 @@
+# Drift events: each violates the nginx-worker SBoB (slot 4) and MUST fire the
+# mapped rule. These are the NGINX2Root post-RCE behaviors (CVE-2026-123007 et
+# al., Xint 2026-11-18): the SBoB catches the BEHAVIOR after the worker-level
+# RCE lands, regardless of the entry vector.
+#
+#   execve /bin/sh -c ...                  -> 100411 (SBoB drift: process ...)
+#        worker shell spawn — execs[] declares only /usr/sbin/nginx
+#   open /etc/passwd                        -> 100421 (SBoB drift: file open ...)
+#   open /etc/shadow                        -> 100421 + 100401 (sensitive-file overlay, level 12)
+#        recon reads outside the declared read paths
+#   init_module (sctp autoload via first SCTP socket) -> 100460 (host-scope
+#        module-load signature, node-scoped key sbob-module-load, uid=0
+#        modprobe; the LPE work itself is inside the kernel — invisible to
+#        userspace audit, recorded finding)
+#   connect 127.0.0.1:4446 (C2 stand-in)    -> 100431 (SBoB drift: connect ...)
+#        egress[] declares only 10.96.100.40:8080
+
+type=SYSCALL msg=audit(1699999990.100:2001): arch=c000003e syscall=59 success=yes exit=0 items=2 ppid=2002 pid=3001 auid=4294967295 uid=101 gid=101 euid=101 suid=101 fsuid=101 egid=101 sgid=101 fsgid=101 tty=(none) ses=4294967295 comm="sh" exe="/bin/sh" subj=unconfined key="sbob-exec-nginx-worker"
+type=EXECVE msg=audit(1699999990.100:2001): argc=3 a0="/bin/sh" a1="-c" a2="id > /var/tmp/.pwned"
+
+type=SYSCALL msg=audit(1699999991.200:2002): arch=c000003e syscall=257 success=yes exit=6 items=1 ppid=3001 pid=3002 auid=4294967295 uid=101 gid=101 euid=101 suid=101 fsuid=101 egid=101 sgid=101 fsgid=101 tty=(none) ses=4294967295 comm="sh" exe="/bin/sh" subj=unconfined key="sbob-open-nginx-worker"
+type=PATH msg=audit(1699999991.200:2002): item=0 name="/etc/passwd" inode=1301 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1699999991.300:2003): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=3001 pid=3002 auid=4294967295 uid=101 gid=101 euid=101 suid=101 fsuid=101 egid=101 sgid=101 fsgid=101 tty=(none) ses=4294967295 comm="sh" exe="/bin/sh" subj=unconfined key="sbob-open-nginx-worker"
+type=PATH msg=audit(1699999991.300:2003): item=0 name="/etc/shadow" inode=1302 dev=fd:01 mode=0100000 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+# host-scope signature: the first SCTP socket open triggers
+# request_module("net-pf-2-proto-132") -> modprobe init_module as uid 0.
+# Node-scoped key sbob-module-load fires by default -> 100460.
+type=SYSCALL msg=audit(1699999992.400:2004): arch=c000003e syscall=175 success=yes exit=0 items=0 ppid=1 pid=4001 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="modprobe" exe="/usr/bin/kmod" subj=unconfined key="sbob-module-load"
+
+type=SYSCALL msg=audit(1699999993.500:2005): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=3002 pid=3003 auid=4294967295 uid=101 gid=101 euid=101 suid=101 fsuid=101 egid=101 sgid=101 fsgid=101 tty=(none) ses=4294967295 comm="python3" exe="/usr/bin/python3" subj=unconfined key="sbob-connect-nginx-worker"
+type=SOCKADDR msg=audit(1699999993.500:2005): saddr=0200115E7F000001

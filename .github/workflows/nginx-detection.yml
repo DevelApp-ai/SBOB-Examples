@@ -1,0 +1,355 @@
+name: nginx-detection
+
+# Scenario D (NGINX2Root, CVE-2026-123007 + kernel SCTP LPE chain) M9 lane:
+# worker-scope + host-scope detection replay (issue #15). Same lab pattern as
+# php-detection.yml / java-detection.yml on the pinned SBoB toolchain.
+#
+#   1. transpile BOTH workload SBoBs from the SHA-pinned toolchain:
+#      nginx-worker (slot 4, band 1004xx) and node-host (slot 5, 1005xx)
+#   2. the post-RCE worker activity runs FOR REAL inside the disposable nginx
+#      container, executed as the nginx worker uid (101) — the RCE entry
+#      vector itself is not simulated. Loopback-only stand-ins (TDS §4)
+#   3. a root escape-simulation runs on the node (post-LPE host shell shape)
+#   4. parity/safety check on the captured windows (loopback-only, benign
+#      purity, delta-7-analog shape: exe-scoped keys cannot tag a
+#      containerized worker node-side; the node-scoped module-load key can)
+#   5. corpus gates through the pinned wazuh-manager 4.14.6:
+#      benign silent; worker drift fires 100411/100421/100431 + sensitive
+#      overlay 100401 + host module-load 100460; sustained children
+#      100412/100422/100432 via the session replay; host escape fires
+#      100511/100521/100501 (+ sustained 100512/100522)
+#   6. live gates: benign silent; drift window fires 100460 iff the sctp
+#      module actually autoloaded on this runner — otherwise the
+#      sctp-already-loaded variant is recorded as the expected-silent finding
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "scenarios/nginx2root/**"
+      - "sbobs/workload/nginx-worker.yaml"
+      - "sbobs/workload/node-host.yaml"
+      - "sbobs/registry.yaml"
+      - ".github/workflows/nginx-detection.yml"
+      - "docs/nginx2root/detection-evidence.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SBOB_REPO: DevelApp-ai/Software-Bill-of-Behavior
+  SBOB_PIN: 4bf2eb1d2413de388c10a0c7de38026e07e46fd7
+  SBOB_REGISTRY: sbobs/registry.yaml
+  WAZUH_IMAGE: wazuh/wazuh-manager:4.14.6
+  WAZUH_CONTAINER: sbob-wazuh-manager-nginx
+  WAZUH_API: https://localhost:55000
+  WAZUH_API_USER: wazuh
+  WAZUH_API_PASS: wazuh
+  WORKLOAD_CONTAINER: sbob-nginx-workload
+  WORKLOAD_IMAGE: sbob-nginx2root:ci
+
+jobs:
+  nginx-detection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout SBOB-Examples
+        uses: actions/checkout@v4
+
+      - name: Checkout the SHA-pinned SBoB toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SBOB_REPO }}
+          ref: ${{ env.SBOB_PIN }}
+          path: sbob-repo
+
+      - name: Node 22 (native type stripping, zero npm install)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Start the node-side audit observer (auditd on the CI node)
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq auditd >/dev/null 2>&1 || true
+          sudo service auditd start >/dev/null 2>&1 || sudo auditd || true
+          sleep 1
+          sudo auditctl -l >/dev/null 2>&1 || { echo "FAIL: node auditctl not functional"; exit 1; }
+          echo "OK: node-side auditd is the observer"
+
+      - name: Transpile both workload bundles (SHA-pinned SBoB toolchain)
+        run: |
+          set -o pipefail
+          cd sbob-repo
+          node src/cli.ts transpile --sbob "$GITHUB_WORKSPACE/sbobs/workload/nginx-worker.yaml" \
+            --out "$GITHUB_WORKSPACE/dist/nginx" --target linux \
+            --registry "$GITHUB_WORKSPACE/$SBOB_REGISTRY" --skip-signature-verify 2>&1 | tee transpile-nginx.log
+          node src/cli.ts transpile --sbob "$GITHUB_WORKSPACE/sbobs/workload/node-host.yaml" \
+            --out "$GITHUB_WORKSPACE/dist/host" --target linux \
+            --registry "$GITHUB_WORKSPACE/$SBOB_REGISTRY" --skip-signature-verify 2>&1 | tee transpile-host.log
+          cd "$GITHUB_WORKSPACE"
+          test -f dist/nginx/wazuh/audit/sbob/nginx-worker.rules || { echo "FAIL: nginx-worker fragment missing"; exit 1; }
+          test -f dist/host/wazuh/rules/sbob/100500_node-host_linux.xml || { echo "FAIL: node-host rules missing"; exit 1; }
+          echo "--- nginx-worker rule ids ---"; grep -o 'rule  id="[0-9]*"' dist/nginx/wazuh/rules/sbob/100400_nginx-worker_linux.xml
+          echo "--- node-host rule ids ---"; grep -o 'rule  id="[0-9]*"' dist/host/wazuh/rules/sbob/100500_node-host_linux.xml
+
+      - name: Build the nginx workload image
+        run: |
+          set -o pipefail
+          docker build \
+            -f scenarios/nginx2root/workload/Dockerfile \
+            -t "$WORKLOAD_IMAGE" \
+            scenarios/nginx2root 2>&1 | tee docker-build.log
+
+      - name: "Run the workload container (NET_ADMIN + node audit log mounted read-only)"
+        run: |
+          docker run --cap-add=NET_ADMIN \
+            -v /var/log/audit:/host-audit:ro \
+            -d --name "$WORKLOAD_CONTAINER" "$WORKLOAD_IMAGE"
+          for i in $(seq 1 60); do
+            if docker exec "$WORKLOAD_CONTAINER" curl -s --max-time 3 -o /dev/null http://127.0.0.1:80/ 2>/dev/null; then
+              echo "workload ready (nginx answering on 80)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "FAIL: workload container did not become ready"
+          docker logs "$WORKLOAD_CONTAINER" 2>&1 | tail -40 || true
+          exit 1
+
+      - name: Load the SBoB audit fragment into the node kernel
+        run: |
+          sudo auditctl -D 2>/dev/null || true
+          # the kernel resolves exe= filters against the node filesystem at
+          # rule-add time: /usr/sbin exists on the runner, so the nginx-worker
+          # fragment loads (same behavior as the php-fpm fragment in M6)
+          sudo auditctl -R dist/nginx/wazuh/audit/sbob/nginx-worker.rules
+          sudo auditctl -l
+          # emission probe: node-scoped memfd signature key must fire node-side
+          before=$(sudo grep -c 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null || echo 0)
+          python3 -c 'import ctypes; libc=ctypes.CDLL(None, use_errno=True); print("probe fd:", libc.memfd_create(b"sbob-node-probe", 0))'
+          sleep 2
+          after=$(sudo grep -c 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null || echo 0)
+          echo "sbob-memfd record count: before=$before after=$after"
+          [ "${after:-0}" -gt "${before:-0}" ] && echo "OK: node-side sbob emission works" || echo "WARN: probe not logged"
+
+      - name: Run the benign + post-RCE flows and capture the windows
+        run: |
+          set -o pipefail
+          rc=0
+          docker exec -e AUDIT_LOG=/host-audit/audit.log "$WORKLOAD_CONTAINER" \
+            bash /opt/harness/run-behaviors.sh 2>&1 | tee workload-run.log || rc=$?
+          mkdir -p telemetry-run
+          docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/benign.audit" telemetry-run/benign.audit || true
+          docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/drift.audit" telemetry-run/drift.audit || true
+          sudo grep -E "^(type=SYSCALL|type=EXECVE|type=PATH|type=SOCKADDR)" /var/log/audit/audit.log \
+            | tail -200 > telemetry-run/audit-tail.log || true
+          echo "--- benign window ---"; cat telemetry-run/benign.audit 2>/dev/null || true
+          echo "--- drift window ---"; cat telemetry-run/drift.audit 2>/dev/null || true
+          exit $rc
+
+      - name: "Escape simulation on the node (post-LPE host root shell shape, for the live record)"
+        run: |
+          # the container-escape phase is observed host-side; this lane runs
+          # the escaped-root-shell SHAPE as a node root process so the node
+          # audit log carries the live record (host-scope rules are proven on
+          # the recorded corpus — the live exe-scoped host fragment cannot tag
+          # /bin/sh on a CI runner, recorded as the delta-7 analog)
+          sudo sh -c 'id > /tmp/escape-proof; head -1 /etc/shadow >/dev/null' 2>&1 | tee escape-sim.log
+          test -s /tmp/escape-proof && echo "escape-sim ran as: $(cat /tmp/escape-proof)"
+          sleep 2
+          sudo grep -E 'exe="/bin/sh"' /var/log/audit/audit.log | tail -3 || true
+
+      - name: "Capture parity + safety check"
+        run: |
+          set -o pipefail
+          python3 scenarios/nginx2root/harness/check_capture.py \
+            telemetry-run/benign.audit telemetry-run/drift.audit 2>&1 | tee parity-check.log
+
+      - name: Upload telemetry artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nginx2root-telemetry
+          if-no-files-found: warn
+          path: |
+            transpile-nginx.log
+            transpile-host.log
+            docker-build.log
+            workload-run.log
+            escape-sim.log
+            parity-check.log
+            telemetry-run/benign.audit
+            telemetry-run/drift.audit
+            telemetry-run/audit-tail.log
+            corpus-benign-gate.log
+            corpus-drift-gate.log
+            corpus-escape-gate.log
+            live-benign-gate.log
+            live-drift-gate.log
+
+      # ---- detection stack: both bundles in one pinned wazuh-manager ----
+
+      - name: Start the disposable Wazuh manager (4.14.6)
+        run: |
+          docker pull "$WAZUH_IMAGE"
+          docker run -d --name "$WAZUH_CONTAINER" \
+            -p 1514:1514 -p 1515:1515 -p 55000:55000 \
+            "$WAZUH_IMAGE"
+          for i in $(seq 1 96); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "$WAZUH_API" || true)
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "manager API up (HTTP $code)"; exit 0; fi
+            sleep 5
+          done
+          echo "manager API did not come up"
+          docker logs --tail 60 "$WAZUH_CONTAINER" || true
+          exit 1
+
+      - name: Install BOTH bundles + declare all CDB lists in ossec.conf
+        run: |
+          set -o pipefail
+          for b in nginx host; do
+            sh sbob-repo/scripts/sync-manager.sh "dist/$b" --root "staging-$b"
+          done
+          docker cp "$WAZUH_CONTAINER:/var/ossec/etc/ossec.conf" ossec.conf
+          : > sbob-lists.snippet
+          for b in nginx host; do
+            if [ -d "staging-$b/rules" ]; then docker cp "staging-$b/rules/." "$WAZUH_CONTAINER:/var/ossec/etc/rules/"; fi
+            if [ -d "staging-$b/decoders" ]; then docker cp "staging-$b/decoders/." "$WAZUH_CONTAINER:/var/ossec/etc/decoders/"; fi
+            if [ -d "staging-$b/lists" ]; then
+              docker cp "staging-$b/lists/." "$WAZUH_CONTAINER:/var/ossec/etc/lists/"
+              (cd "staging-$b/lists" && find sbob -type f | sort) | while read -r rel; do
+                printf '    <list>etc/lists/%s</list>\n' "$rel"
+              done >> sbob-lists.snippet
+            fi
+          done
+          if [ -s sbob-lists.snippet ]; then
+            awk '
+              BEGIN { while ((getline l < "sbob-lists.snippet") > 0) ins = ins l ORS }
+              !done && /<\/ruleset>/ { printf "%s", ins; done = 1 }
+              { print }
+            ' ossec.conf > ossec.conf.new
+            mv ossec.conf.new ossec.conf
+            echo "declared lists:"; grep "<list>etc/lists/sbob" ossec.conf
+          fi
+          docker cp ossec.conf "$WAZUH_CONTAINER:/var/ossec/etc/ossec.conf"
+          find staging-nginx staging-host -type f | sort
+
+      - name: Restart the manager and wait for the API (both bundles must load cleanly)
+        run: |
+          docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control restart 2>&1 | tee restart.log \
+            || echo "wazuh-control restart rc=$? (probe below is the gate)"
+          code=000
+          for i in $(seq 1 60); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "$WAZUH_API" || true)
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "manager API up after restart (HTTP $code)"; break; fi
+            sleep 5
+          done
+          if [ "$code" = "000" ] || [ -z "$code" ]; then
+            echo "manager API did not come back after the bundle install"; exit 1
+          fi
+          if docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control status 2>/dev/null | grep -q "analysisd.*running"; then
+            echo "analysisd running with both bundles loaded"
+            exit 0
+          fi
+          echo "analysisd is NOT running — the manager rejected the ruleset"
+          docker exec "$WAZUH_CONTAINER" sh -c 'tail -30 /var/ossec/logs/ossec.log' || true
+          exit 1
+
+      - name: "Corpus gate — benign silent (recorded harness corpus, 8x one session)"
+        run: |
+          set -o pipefail
+          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+            node scenarios/nginx2root/harness/logtest-replay.ts \
+            --api "$WAZUH_API" \
+            --file scenarios/nginx2root/telemetry/nginx-benign.audit \
+            --mode benign --repeats 8 2>&1 | tee corpus-benign-gate.log
+
+      - name: "Corpus gate — worker drift fires every mapped rule + module-load signature; sustained via session replay"
+        run: |
+          set -o pipefail
+          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+            node scenarios/nginx2root/harness/logtest-replay.ts \
+            --api "$WAZUH_API" \
+            --file scenarios/nginx2root/telemetry/nginx-drift.audit \
+            --mode drift \
+            --expect 100411,100421,100431,100401,100460 \
+            --expect-absent 100402,100461,100462,100463 \
+            --expect-sustained 100412,100422,100432 \
+            --repeats 8 2>&1 | tee corpus-drift-gate.log
+
+      - name: "Corpus gate — host-scope escape fires 100511/100521/100501 (+ sustained children)"
+        run: |
+          set -o pipefail
+          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+            node scenarios/nginx2root/harness/logtest-replay.ts \
+            --api "$WAZUH_API" \
+            --file scenarios/nginx2root/telemetry/host-escape.audit \
+            --mode drift \
+            --expect 100511,100521,100501 \
+            --expect-sustained 100512,100522 \
+            --repeats 8 2>&1 | tee corpus-escape-gate.log
+
+      - name: "Live gate — benign telemetry silent (zero alerts)"
+        run: |
+          set -o pipefail
+          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+            node scenarios/nginx2root/harness/logtest-replay.ts \
+            --api "$WAZUH_API" \
+            --file telemetry-run/benign.audit --mode benign --repeats 8 2>&1 | tee live-benign-gate.log
+
+      - name: "Live gate — drift window: 100460 fires iff sctp autoloaded; else sctp-already-loaded expected-silent finding"
+        run: |
+          set -o pipefail
+          if grep -q 'key="sbob-module-load"' telemetry-run/drift.audit; then
+            echo "sctp module autoloaded on this runner — live module-load signature expected"
+            SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+              node scenarios/nginx2root/harness/logtest-replay.ts \
+              --api "$WAZUH_API" \
+              --file telemetry-run/drift.audit --mode drift \
+              --expect 100460 --expect-absent 100411,100421,100431 \
+              --repeats 8 2>&1 | tee live-drift-gate.log
+          else
+            echo "FINDING (expected-silent variant): no sbob-module-load record in the live window — sctp already loaded (or unavailable) on this runner kernel; no module-load event exists to fire 100460. Recorded in docs/nginx2root/detection-evidence.md."
+            SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+              node scenarios/nginx2root/harness/logtest-replay.ts \
+              --api "$WAZUH_API" \
+              --file telemetry-run/drift.audit --mode benign --repeats 8 2>&1 | tee live-drift-gate.log
+          fi
+
+      - name: Verdict summary
+        if: always()
+        run: |
+          {
+            echo "## nginx-detection verdict (scenario D M9)"
+            echo "| gate | verdict |"
+            echo "|---|---|---|"
+            for f in transpile-nginx.log transpile-host.log workload-run.log escape-sim.log parity-check.log corpus-benign-gate.log corpus-drift-gate.log corpus-escape-gate.log live-benign-gate.log live-drift-gate.log; do
+              if [ ! -f "$f" ]; then v="(not reached)";
+              elif grep -qE "^FAIL:|^ERROR:" "$f"; then v="**FAIL** (see $f)";
+              else v="PASS (see $f)"; fi
+              echo "| $f | $v |"
+            done
+            echo "SBoB toolchain pin: \`${SBOB_PIN}\` ; manager: \`$WAZUH_IMAGE\` ; workloads: nginx-worker (slot 4), node-host (slot 5)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Failure diagnostics (step summary)
+        if: failure()
+        run: |
+          set +e
+          {
+            echo "## nginx-detection diagnostics"
+            echo '```'
+            docker ps -a 2>&1 | sed -n 1,20p || true
+            docker logs --tail 60 "$WORKLOAD_CONTAINER" 2>&1 || true
+            sudo auditctl -l 2>&1 || true
+            sudo grep -E 'key="sbob-' /var/log/audit/audit.log 2>/dev/null | tail -10 || true
+            docker exec "$WAZUH_CONTAINER" sh -c 'tail -40 /var/ossec/logs/ossec.log' 2>&1 || true
+            for f in workload-run.log parity-check.log corpus-benign-gate.log corpus-drift-gate.log corpus-escape-gate.log live-benign-gate.log live-drift-gate.log; do
+              if [ -f "$f" ]; then echo "### $f (tail 40)"; tail -40 "$f"; fi
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          echo "::error title=fail-lines::$(grep -hE '^FAIL:|^ERROR:' workload-run.log parity-check.log corpus-benign-gate.log corpus-drift-gate.log corpus-escape-gate.log live-benign-gate.log live-drift-gate.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"

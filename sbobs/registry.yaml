@@ -9,3 +9,7 @@ workloads:
   python-ci-runner: {slot: 2}
   # scenario C (issue #14, M8): java-service gets slot 3 -> rule band 1003xx
   java-service: {slot: 3}
+  # scenario D (issue #15, M9): nginx-worker slot 4 -> band 1004xx,
+  # node-host (host-scope SBoB) slot 5 -> band 1005xx
+  nginx-worker: {slot: 4}
+  node-host: {slot: 5}

@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# SBOB-EXAMPLES DEMO — scenario D (issue #15, M9) HOST-scope profile: the
+# node the nginx container runs on. NGINX2Root's chain ends in a kernel
+# SCTP-subsystem LPE that yields a ROOT shell on the host (container escape)
+# — a root shell is in no host SBoB, so host-scope exec/open drift fires.
+#
+# This profile declares only the node's steady-state daemons. execs[] is a
+# small static allowlist (systemd, sshd, containerd, dockerd, auditd, cron):
+# anything else exec'ing on the host — notably /bin/sh as root — is drift.
+# opens[] is narrow on purpose: /etc/passwd and /etc/shadow are NOT declared,
+# so uid-0 recon reads drift (100521) and the shadow read additionally trips
+# the sensitive-file overlay (100501).
+#
+# egress/ingress are omitted: host egress drift is covered by the workload
+# profiles; the host-scope point of scenario D is exec + opens + the
+# module-load signature.
+# ---------------------------------------------------------------------------
+apiVersion: sbob.k8sstormcenter.io/v1
+kind: SoftwareBillOfBehavior
+metadata:
+  name: node-host
+  namespace: infra-tier
+  annotations:
+    sbob.spec-version: "0.0.4"
+spec:
+  imageID: host://node  # host install, not a container image
+  execs:
+  - path: /usr/lib/systemd/systemd
+    args: ['/usr/lib/systemd/systemd', '…']
+  - path: /usr/sbin/sshd
+    args: ['/usr/sbin/sshd', '…']
+  - path: /usr/bin/dockerd
+    args: ['/usr/bin/dockerd', '…']
+  - path: /usr/bin/containerd
+    args: ['/usr/bin/containerd', '…']
+  - path: /usr/sbin/auditd
+    args: ['/usr/sbin/auditd', '…']
+  - path: /usr/sbin/cron
+    args: ['/usr/sbin/cron', '…']
+  opens:
+  - flags: [O_RDONLY]
+    path: /etc/resolv.conf
+  - flags: [O_RDONLY]
+    path: /etc/hostname
+  - flags: [O_RDONLY]
+    path: /etc/hosts
