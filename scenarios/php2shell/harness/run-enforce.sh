@@ -27,11 +27,18 @@ LOG="$OUT/sbob-enforce.log"
 VERDICTS="$OUT/verdicts.json"
 : > "$LOG"
 
-fcgi() { # $1 = script basename under /var/www/html
+fcgi() { # $1 = script basename under /var/www/html (timeout-guarded: a hung
+           # fastcgi call must fail the leg, never eat the job)
   SCRIPT_NAME="/$1" SCRIPT_FILENAME="/var/www/html/$1" REQUEST_METHOD=GET \
     QUERY_STRING="" CONTENT_TYPE="" CONTENT_LENGTH="" \
-    cgi-fcgi -bind -connect 127.0.0.1:9000 2>/dev/null
+    timeout 45 cgi-fcgi -bind -connect 127.0.0.1:9000 2>/dev/null
 }
+
+echo "[enforce] 0. pre-flight: benign flow BEFORE the egress policy is applied (contrast leg)"
+PRE=$(fcgi benign.php) || PRE="___fcgi-request-failed"
+printf '%s\n' "$PRE" | grep -q 'benign: memcache peer 10.96.100.10:11211 connected' \
+  && echo "[enforce]    pre-flight benign OK (memcache reachable without policy)" \
+  || { echo "[enforce]    pre-flight benign FAILED — workload not healthy before policy"; printf '%s\n' "$PRE" | sed 's/^/[enforce]    /'; }
 
 reject_pkts() { # REJECT rule packet counter of the egress chain (exact, no units)
   iptables -L SBOB-EGRESS-ENFORCE -nxv 2>/dev/null | awk '$3=="REJECT"{print $1; exit}'
@@ -65,6 +72,7 @@ echo "[enforce] 3. benign flow under enforcement (must be UNAFFECTED — no fals
 rm -f /var/lib/php/sessions/sess_*
 BENIGN=$(fcgi benign.php) || BENIGN="___fcgi-request-failed"
 printf '%s\n' "$BENIGN" | sed 's/^/[enforce]    /'
+iptables -L OUTPUT -nxv | sed 's/^/[enforce]    OUTPUT: /'
 # declared write path must be writable for the workload uid (33): the tmpfs at
 # /var/lib/php/sessions is the only writable path under the read-only rootfs
 SESS_WRITE=$(setpriv --reuid 33 --regid 33 --clear-groups \
@@ -98,7 +106,6 @@ check() { # name condition-detail passed
 # benign: all four declared behaviors present and working
 b_read=0; b_sess=0; b_res=0; b_mem=0
 printf '%s' "$BENIGN" | grep -q 'benign: read [1-9]' && b_read=1
-printf '%s' "$BENIGN" | grep -q 'benign: session hits' && b_sess=1
 printf '%s' "$BENIGN" | grep -q 'benign: resolver line' && b_res=1
 printf '%s' "$BENIGN" | grep -q 'benign: memcache peer 10.96.100.10:11211 connected' && b_mem=1
 [ "$SESS_WRITE" = "WRITE-OK" ] && b_sess=1

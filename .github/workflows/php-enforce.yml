@@ -84,7 +84,7 @@ env:
 jobs:
   php-enforce:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout SBOB-Examples
         uses: actions/checkout@v4
@@ -152,7 +152,7 @@ jobs:
             --read-only \
             --tmpfs /run \
             --tmpfs /tmp \
-            --tmpfs /var/lib/php/sessions \
+            --tmpfs /var/lib/php/sessions:rw,uid=33,gid=33,mode=0770 \
             --tmpfs /opt/enforce \
             --security-opt "seccomp=$GITHUB_WORKSPACE/$SECCOMP_PROFILE" \
             -v /dev/null:/bin/sh \
