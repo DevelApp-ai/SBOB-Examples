@@ -220,7 +220,7 @@ jobs:
             cat enforce-run/sbob-enforce.log 2>/dev/null
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY" || true
-          echo "::error title=fail-lines::$(grep -hE '^FAIL:|^ERROR:|^::error|M7-VERDICT' php-enforce-demo.log enforce-php-linux.log enforce-php-k8s-node.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"
+          echo "::error title=fail-lines::$(grep -hE '^FAIL:|^ERROR:|^::error|M7-VERDICT overall=FAIL' php-enforce-demo.log enforce-php-linux.log enforce-php-k8s-node.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"
 
       - name: Upload lane artifacts
         if: always()
