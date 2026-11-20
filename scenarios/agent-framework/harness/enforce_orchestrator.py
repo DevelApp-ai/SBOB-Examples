@@ -169,6 +169,10 @@ def main():
 
     work = args.work
     os.makedirs(work, exist_ok=True)
+    # The work dir is usually a bind mount (CI: `mktemp -d` -> mode 700 owned
+    # by the runner uid): the workload uid must be able to SEARCH it or every
+    # child-path syscall fails EACCES before ever reaching a chowned dir.
+    os.chmod(work, 0o755)
     receipts = os.path.join(work, "receipts.jsonl")
     # fresh receipts file so counters and deltas are unambiguous (fresh OCI
     # container per run makes this a no-op; kept for local replication)
