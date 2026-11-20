@@ -1,0 +1,428 @@
+name: supply-chain-gate
+
+# Scenario A (agent-framework hijack) M2 lane: layer 1 — supply-chain gate.
+#
+# Gate A — corpus/provenance fail-closed (the realistic catch):
+#   A1  profile generation over the ARTIFACT-ONLY candidate (as shipped by
+#       the attacker: wheel contents, no manifest, no tests, no corpus)
+#       must FAIL CLOSED — recorded as a gate refusal, not a red lane.
+#   A3  generation manifest present but NO test corpus: what the profiler
+#       does with an artifact nobody granted tests for is recorded; the
+#       section-shadowed refusal is the expected honest outcome (verify on
+#       first run, then pin the observed exit code; see expected-verdict
+#       discipline below).
+#   A2  companion refusal: a consumer pinning signed registry profiles
+#       finds NO signed entry for 1.26.1 (sbobctl verify → exit 1,
+#       ERR_VERIFY_SIG_MISSING).
+#   Re-check: microsoft/agent-framework (the planned upstream corpus) is
+#       re-resolved every run; a 404 is the recorded finding (upstream/
+#       ATTRIBUTION.md), not a lane failure.
+#
+# Gate B — behavior diff on the reconstruction (the delta evidence):
+#   EXPLICITLY LABELED DEMO SCAFFOLDING — a real attacker never grants the
+#   corpus extension (docs/TDS.md §M2). Baseline = sbobforge profile of the
+#   reconstructed clean 1.26.0 corpus (upstream/corpus-1.26.0); candidate =
+#   corpus + attacker-corpus extension (upstream/tests-attack/v*) for
+#   1.26.1/1.26.2. Actual gate verdicts are recorded on the first honest
+#   run and pinned after (expected-verdict discipline). Delta reports are
+#   uploaded as evidence artifacts.
+#
+# Gate C — canary profiling (identification WITHOUT attacker cooperation):
+#   node-side canary under a dedicated disposable uid (af-canary), uid-
+#   scoped auditd observer (the M6 lane proved auditd inside runner
+#   containers EPERMs on the shared kernel; recorded in
+#   docs/supply-chain-evidence.md). Three starts per version make every
+#   observed behavior steady in the 1-day window (count>1 ⇒ declared; a
+#   single start classifies every behavior as one-off ⇒ nothing declarable
+#   — verified against sbobctl 4bf2eb1d locally).
+#   Control  clean canary vs clean canary → CLEAN, exit 0.
+#   C1/C2   1.26.1 / 1.26.2 canary candidates vs the canary baseline →
+#           recorded on first run, then pinned.
+#
+# Tool pins: SBoB repo main@4bf2eb1d (sbobctl), SBOB-Forge@64ee36ad
+# (needs the DevelApp.Minotaur 1.5.25 private feed → packages: read +
+# NUGET_AUTH_TOKEN = GITHUB_TOKEN).
+
+on:
+  push:
+    branches: [m2-supply-chain-gates, main]
+  pull_request:
+    paths:
+      - "scenarios/agent-framework/**"
+      - "upstream/**"
+      - "docs/supply-chain-evidence.md"
+      - ".github/workflows/supply-chain-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  SBOB_REPO: DevelApp-ai/Software-Bill-of-Behavior
+  SBOB_PIN: 4bf2eb1d2413de388c10a0c7de38026e07e46fd7
+  FORGE_REPO: DevelApp-ai/SBOB-Forge
+  FORGE_PIN: 64ee36adad015b3ee623ffe255a2bc02ae44ddd8
+  CANARY_USER: af-canary
+  SINK_PORT: "8099"
+
+jobs:
+  gate-a:
+    name: Gate A — corpus/provenance fail-closed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # upstream re-check (recorded finding, not a failure)
+      - name: Re-check the planned upstream corpus (recorded 404 finding)
+        run: |
+          set -o pipefail
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://api.github.com/repos/microsoft/agent-framework" || true)
+          echo "[gate-a] microsoft/agent-framework resolves as HTTP ${code:-unreachable}"
+          if [ "$code" = "200" ]; then
+            echo "::warning::upstream resolved again — re-open the vendoring decision (upstream/ATTRIBUTION.md)"
+          fi
+
+      - name: Build sbobctl checkout (SHA-pinned SBoB repo)
+        run: |
+          set -euo pipefail
+          git clone -q "https://github.com/${SBOB_REPO}.git" sbob && cd sbob
+          git checkout -q "$SBOB_PIN"
+          node --test test/schema.test.ts >/dev/null && echo "[gate-a] sbobctl checkout self-check OK"
+
+      - name: Clone + build sbobforge (pinned; private Minotaur feed)
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          dotnet --version
+          git clone -q "https://github.com/${FORGE_REPO}.git" forge && cd forge
+          git checkout -q "$FORGE_PIN"
+          dotnet publish src/SBOBForge.Cli -c Release -o out \
+            -p:RestoreConfigFile=NuGet.config
+          ./out/sbobforge version | head -4
+
+      - name: 'A1: artifact-only candidate — generation must fail closed'
+        run: |
+          set -euo pipefail
+          python3 scenarios/agent-framework/harness/assemble.py gate-a 1.26.1 work/a1
+          set +e
+          (cd work/a1 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) > work/a1.log 2>&1
+          rc=$?
+          set -e
+          cat work/a1.log
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::A1 FAILED: generation over the artifact-only candidate exited 0 — the fail-closed refusal is broken"
+            exit 1
+          fi
+          echo "[gate-a] A1 refusal recorded (exit $rc) — a diff that cannot run is an error verdict, never green"
+
+      - name: 'A3: manifest without corpus — record what the profiler does'
+        run: |
+          set -euo pipefail
+          python3 scenarios/agent-framework/harness/assemble.py gate-a3 1.26.1 work/a3
+          set +e
+          (cd work/a3 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) > work/a3.log 2>&1
+          rc=$?
+          set -e
+          cat work/a3.log
+          # Expected: section-shadowed refusal (exit 2) — pinned after the
+          # first honest run. Record the observed exit code either way.
+          if [ "$rc" -ne 2 ]; then
+            echo "::warning::A3 observed exit $rc (recorded; update the pinned refusal in this step and docs/supply-chain-evidence.md)"
+          fi
+          echo "[gate-a] A3 recorded exit $rc (manifest present, no corpus granted)"
+
+      - name: 'A2: unsigned candidate — sbobctl verify must refuse'
+        run: |
+          set -euo pipefail
+          set +e
+          (cd sbob && node src/cli.ts verify --sbob \
+            ../scenarios/agent-framework/mock-registry/agent-framework-1.26.1.entry.yaml) \
+            > work/a2.log 2>&1
+          rc=$?
+          set -e
+          cat work/a2.log
+          if [ "$rc" -eq 0 ] || ! grep -q "ERR_VERIFY_SIG_MISSING" work/a2.log; then
+            echo "::error::A2 FAILED: the unsigned candidate entry did not trigger the verified-refusal path"
+            exit 1
+          fi
+          echo "[gate-a] A2 refusal recorded: no signed entry for 1.26.1 → consumer refuses"
+
+      - name: Gate A verdict summary
+        run: |
+          {
+            echo "### Gate A — corpus/provenance fail-closed (verdict: REFUSED as designed)"
+            echo ""
+            echo "- A1 artifact-only generation: refused (non-zero exit — a diff that cannot run is an error verdict, never green)"
+            echo "- A3 generation manifest without corpus: exit code recorded in the lane log above (section-shadowed refusal expected)"
+            echo "- A2 unsigned candidate entry: refused (ERR_VERIFY_SIG_MISSING → consumer refuses)"
+            echo "- upstream re-check: microsoft/agent-framework recorded in the lane log (404 is the known finding, upstream/ATTRIBUTION.md)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  gate-b:
+    name: Gate B — scored delta on the reconstruction (demo scaffolding)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Clone pinned SBoB repo (sbobctl diff)
+        run: |
+          set -euo pipefail
+          git clone -q "https://github.com/${SBOB_REPO}.git" sbob && cd sbob
+          git checkout -q "$SBOB_PIN"
+
+      - name: Clone + build sbobforge (pinned; private Minotaur feed)
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone -q "https://github.com/${FORGE_REPO}.git" forge && cd forge
+          git checkout -q "$FORGE_PIN"
+          dotnet publish src/SBOBForge.Cli -c Release -o out \
+            -p:RestoreConfigFile=NuGet.config
+
+      - name: Generate + convert the 1.26.0 baseline from the corpus
+        run: |
+          set -euo pipefail
+          python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.0 work/b0
+          (cd work/b0 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b0.log
+          ls work/b0/sbob/
+          "$GITHUB_WORKSPACE/forge/out/sbobforge" convert \
+            work/b0/sbob/*.sbob.yaml work/baseline-1.26.0.yaml
+          head -20 work/baseline-1.26.0.yaml
+
+      - name: 'B1: 1.26.1 — generate, convert, diff, record verdict'
+        run: |
+          set -euo pipefail
+          python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.1 work/b1
+          (cd work/b1 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b1.log
+          "$GITHUB_WORKSPACE/forge/out/sbobforge" convert \
+            work/b1/sbob/*.sbob.yaml work/candidate-1.26.1.yaml
+          (cd sbob && node src/cli.ts diff \
+            --old ../work/baseline-1.26.0.yaml --new ../work/candidate-1.26.1.yaml \
+            --report ../work/report-1.26.1.json --fail-on none) | tee work/diff-1.26.1.md
+          python3 - <<'PY'
+          import json
+          r = json.load(open("work/report-1.26.1.json"))
+          print("[gate-b] B1 verdict:", r.get("verdict"), "score:", r.get("score"))
+          open("work/b1-verdict.txt", "w").write(str(r.get("verdict")))
+          PY
+
+      - name: 'B2: 1.26.2 — generate, convert, diff, record verdict'
+        run: |
+          set -euo pipefail
+          python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.2 work/b2
+          (cd work/b2 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b2.log
+          "$GITHUB_WORKSPACE/forge/out/sbobforge" convert \
+            work/b2/sbob/*.sbob.yaml work/candidate-1.26.2.yaml
+          (cd sbob && node src/cli.ts diff \
+            --old ../work/baseline-1.26.0.yaml --new ../work/candidate-1.26.2.yaml \
+            --report ../work/report-1.26.2.json --fail-on none) | tee work/diff-1.26.2.md
+          python3 - <<'PY'
+          import json
+          r = json.load(open("work/report-1.26.2.json"))
+          print("[gate-b] B2 verdict:", r.get("verdict"), "score:", r.get("score"))
+          open("work/b2-verdict.txt", "w").write(str(r.get("verdict")))
+          PY
+
+      - name: Assert recorded Gate B verdicts (pinned after first honest run)
+        run: |
+          set -euo pipefail
+          # expected-verdict discipline: these are pinned to the first honest
+          # run's ACTUAL scoreboard; update alongside docs/supply-chain-evidence.md
+          EXPECT_B1="${EXPECT_B1_VERDICT:-record-first-run}"
+          EXPECT_B2="${EXPECT_B2_VERDICT:-record-first-run}"
+          if [ "$EXPECT_B1" = "record-first-run" ] || [ "$EXPECT_B2" = "record-first-run" ]; then
+            echo "[gate-b] first-run recording mode — verdicts above get pinned into EXPECT_*_VERDICT after evidence review"
+            exit 0
+          fi
+          [ "$(cat work/b1-verdict.txt)" = "$EXPECT_B1" ] || {
+            echo "::error::B1 verdict $(cat work/b1-verdict.txt) != pinned $EXPECT_B1"; exit 1; }
+          [ "$(cat work/b2-verdict.txt)" = "$EXPECT_B2" ] || {
+            echo "::error::B2 verdict $(cat work/b2-verdict.txt) != pinned $EXPECT_B2"; exit 1; }
+
+      - name: Upload Gate B evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-b-delta-reports
+          path: |
+            work/report-1.26.1.json
+            work/report-1.26.2.json
+            work/diff-1.26.1.md
+            work/diff-1.26.2.md
+
+  gate-c:
+    name: Gate C — canary profiling + control (node-side, dedicated uid)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Clone pinned SBoB repo (sbobctl profile/diff)
+        run: |
+          set -euo pipefail
+          git clone -q "https://github.com/${SBOB_REPO}.git" sbob && cd sbob
+          git checkout -q "$SBOB_PIN"
+
+      - name: Dedicated canary uid + observer setup
+        run: |
+          set -euo pipefail
+          sudo useradd -m "$CANARY_USER" 2>/dev/null || true
+          CANARY_UID=$(id -u "$CANARY_USER")
+          echo "CANARY_UID=$CANARY_UID" >> "$GITHUB_ENV"
+          # work-canary: the disposable canary's own tree (its uid must write
+          # it); work-evidence: runner-side normalization/profile/diff outputs
+          sudo mkdir -p work-canary
+          sudo chown "$CANARY_USER":"$CANARY_USER" work-canary
+          sudo chmod 755 work-canary
+          mkdir -p work-evidence
+          sudo bash scenarios/agent-framework/harness/canary-observer.sh setup "$CANARY_UID"
+
+      - name: Baseline canary (clean 1.26.0) — profile the window
+        run: |
+          set -euo pipefail
+          T0=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
+          sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
+            python3 scenarios/agent-framework/harness/canary-run.py \
+            --version-dir scenarios/agent-framework/package/v1.26.0 \
+            --out-dir work-canary/clean --starts 3 --expect-receipts-per-start 0
+          sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
+            "$CANARY_UID" "$T0" work-canary/clean.audit
+          python3 scenarios/agent-framework/harness/normalize_auditd.py \
+            work-canary/clean.audit work-canary/clean/fixtures/home \
+            work-canary/clean/fixtures/proc af-canary work-evidence/events-clean.jsonl
+          (cd sbob && node src/cli.ts profile \
+            --events ../work-evidence/events-clean.jsonl \
+            --workload af-canary --image demo://af-canary \
+            --window-days 1 --out-dir ../work-evidence/profile-clean) | tee work-evidence/profile-clean.log
+
+      - name: Control — second clean canary must diff CLEAN (exit 0)
+        run: |
+          set -euo pipefail
+          T1=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
+          sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
+            python3 scenarios/agent-framework/harness/canary-run.py \
+            --version-dir scenarios/agent-framework/package/v1.26.0 \
+            --out-dir work-canary/clean2 --starts 3 --expect-receipts-per-start 0
+          sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
+            "$CANARY_UID" "$T1" work-canary/clean2.audit
+          python3 scenarios/agent-framework/harness/normalize_auditd.py \
+            work-canary/clean2.audit work-canary/clean2/fixtures/home \
+            work-canary/clean2/fixtures/proc af-canary work-evidence/events-clean2.jsonl
+          (cd sbob && node src/cli.ts profile \
+            --events ../work-evidence/events-clean2.jsonl \
+            --workload af-canary --image demo://af-canary \
+            --window-days 1 --out-dir ../work-evidence/profile-clean2) >/dev/null
+          (cd sbob && node src/cli.ts diff \
+            --old ../work-evidence/profile-clean/af-canary.candidate.yaml \
+            --new ../work-evidence/profile-clean2/af-canary.candidate.yaml \
+            --report ../work-evidence/control-report.json --fail-on none) | tee work-evidence/control-diff.md
+          python3 - <<'PY'
+          import json
+          r = json.load(open("work-evidence/control-report.json"))
+          assert r.get("score") == 0, f"control scored {r.get('score')}: {r}"
+          print("[gate-c] CONTROL PASS: clean canary run-to-run delta is 0 (verdict", r.get("verdict"), ")")
+          PY
+
+      - name: 'C1: 1.26.1 canary — profile, diff vs baseline, record verdict'
+        run: |
+          set -euo pipefail
+          T2=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
+          sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
+            python3 scenarios/agent-framework/harness/canary-run.py \
+            --version-dir scenarios/agent-framework/package/v1.26.1 \
+            --out-dir work-canary/mal1 --starts 3 --expect-receipts-per-start 1
+          sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
+            "$CANARY_UID" "$T2" work-canary/mal1.audit
+          python3 scenarios/agent-framework/harness/normalize_auditd.py \
+            work-canary/mal1.audit work-canary/mal1/fixtures/home \
+            work-canary/mal1/fixtures/proc af-canary work-evidence/events-mal1.jsonl
+          (cd sbob && node src/cli.ts profile \
+            --events ../work-evidence/events-mal1.jsonl \
+            --workload af-canary --image demo://af-canary \
+            --window-days 1 --out-dir ../work-evidence/profile-mal1) >/dev/null
+          (cd sbob && node src/cli.ts diff \
+            --old ../work-evidence/profile-clean/af-canary.candidate.yaml \
+            --new ../work-evidence/profile-mal1/af-canary.candidate.yaml \
+            --report ../work-evidence/mal1-report.json --fail-on none) | tee work-evidence/diff-mal1.md
+          python3 - <<'PY'
+          import json
+          r = json.load(open("work-evidence/mal1-report.json"))
+          print("[gate-c] C1 1.26.1 verdict:", r.get("verdict"), "score:", r.get("score"))
+          open("work-evidence/c1-verdict.txt", "w").write(str(r.get("verdict")))
+          PY
+
+      - name: 'C2: 1.26.2 canary — profile, diff vs baseline, record verdict'
+        run: |
+          set -euo pipefail
+          T3=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
+          sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
+            python3 scenarios/agent-framework/harness/canary-run.py \
+            --version-dir scenarios/agent-framework/package/v1.26.2 \
+            --out-dir work-canary/mal2 --starts 3 --expect-receipts-per-start 1
+          sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
+            "$CANARY_UID" "$T3" work-canary/mal2.audit
+          python3 scenarios/agent-framework/harness/normalize_auditd.py \
+            work-canary/mal2.audit work-canary/mal2/fixtures/home \
+            work-canary/mal2/fixtures/proc af-canary work-evidence/events-mal2.jsonl
+          (cd sbob && node src/cli.ts profile \
+            --events ../work-evidence/events-mal2.jsonl \
+            --workload af-canary --image demo://af-canary \
+            --window-days 1 --out-dir ../work-evidence/profile-mal2) >/dev/null
+          (cd sbob && node src/cli.ts diff \
+            --old ../work-evidence/profile-clean/af-canary.candidate.yaml \
+            --new ../work-evidence/profile-mal2/af-canary.candidate.yaml \
+            --report ../work-evidence/mal2-report.json --fail-on none) | tee work-evidence/diff-mal2.md
+          python3 - <<'PY'
+          import json
+          r = json.load(open("work-evidence/mal2-report.json"))
+          print("[gate-c] C2 1.26.2 verdict:", r.get("verdict"), "score:", r.get("score"))
+          open("work-evidence/c2-verdict.txt", "w").write(str(r.get("verdict")))
+          PY
+
+      - name: 'Canary honesty floor — the diffs must SCORE'
+        run: |
+          set -euo pipefail
+          # Regardless of the pinned ladder class, a credential-harvesting
+          # stealer observed by the kernel must not diff at zero. The floor
+          # is the minimum honest finding; the ladder class is pinned from
+          # the first run's ACTUAL verdicts (steps above) alongside
+          # docs/supply-chain-evidence.md.
+          python3 - <<'PY'
+          import json
+          for name in ("mal1", "mal2"):
+              r = json.load(open(f"work-evidence/{name}-report.json"))
+              score = r.get("score", 0)
+              assert score >= 10, f"{name} scored {score} — below the advisory threshold; the honest floor is missing: {r}"
+              print(f"[gate-c] honesty floor PASS: {name} scored {score}")
+          PY
+
+      - name: Observer teardown (disposable node hygiene)
+        if: always()
+        run: sudo bash scenarios/agent-framework/harness/canary-observer.sh teardown
+
+      - name: Upload Gate C evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-c-canary-evidence
+          path: |
+            work-evidence/events-*.jsonl
+            work-evidence/profile-clean/*
+            work-evidence/profile-clean2/*
+            work-evidence/profile-mal1/*
+            work-evidence/profile-mal2/*
+            work-evidence/*report.json
+            work-evidence/diff-*.md
+            work-evidence/c1-verdict.txt
+            work-evidence/c2-verdict.txt
+            work-canary/*.audit

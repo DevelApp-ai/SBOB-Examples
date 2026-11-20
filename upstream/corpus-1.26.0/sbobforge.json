@@ -1,0 +1,14 @@
+{
+  "packageType": "pypi",
+  "packageName": "agent-framework",
+  "packageVersion": "1.26.0",
+  "namespace": "develapp-examples",
+  "targetOs": "linux",
+  "architectures": ["amd64"],
+  "sutGlobs": ["sut/**/*.py"],
+  "testGlobs": ["tests/**/*.py"],
+  "pathPolicies": [],
+  "netPolicies": [],
+  "execPathPolicy": {},
+  "allowParseError": []
+}
