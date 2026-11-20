@@ -124,7 +124,13 @@ jobs:
       - name: 'A3: manifest without corpus — record what the profiler does'
         run: |
           set -euo pipefail
+          trap 'rc=$?; echo "::error::A3 step failed at line $LINENO (exit $rc)"' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-a3 1.26.1 work/a3
+          # the lane grants the tool its runtime prerequisites (the grammar
+          # lock pins the environment's Minotaur + grammar versions; the
+          # attacker shipped none of this, but A3 isolates the NO-CORPUS
+          # refusal, not the missing-lock crash)
+          (cd work/a3 && "$GITHUB_WORKSPACE/forge/out/sbobforge" lock . --update)
           set +e
           (cd work/a3 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) > work/a3.log 2>&1
           rc=$?
@@ -192,7 +198,9 @@ jobs:
       - name: Generate + convert the 1.26.0 baseline from the corpus
         run: |
           set -euo pipefail
+          trap 'rc=$?; echo "::error::B0 failed at line $LINENO (exit $rc)"' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.0 work/b0
+          "$GITHUB_WORKSPACE/forge/out/sbobforge" lock work/b0 --update
           (cd work/b0 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b0.log
           ls work/b0/sbob/
           "$GITHUB_WORKSPACE/forge/out/sbobforge" convert \
@@ -202,7 +210,9 @@ jobs:
       - name: 'B1: 1.26.1 — generate, convert, diff, record verdict'
         run: |
           set -euo pipefail
+          trap 'rc=$?; echo "::error::B1 failed at line $LINENO (exit $rc)"' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.1 work/b1
+          "$GITHUB_WORKSPACE/forge/out/sbobforge" lock work/b1 --update
           (cd work/b1 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b1.log
           "$GITHUB_WORKSPACE/forge/out/sbobforge" convert \
             work/b1/sbob/*.sbob.yaml work/candidate-1.26.1.yaml
@@ -219,7 +229,9 @@ jobs:
       - name: 'B2: 1.26.2 — generate, convert, diff, record verdict'
         run: |
           set -euo pipefail
+          trap 'rc=$?; echo "::error::B2 failed at line $LINENO (exit $rc)"' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.2 work/b2
+          "$GITHUB_WORKSPACE/forge/out/sbobforge" lock work/b2 --update
           (cd work/b2 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b2.log
           "$GITHUB_WORKSPACE/forge/out/sbobforge" convert \
             work/b2/sbob/*.sbob.yaml work/candidate-1.26.2.yaml
@@ -291,7 +303,9 @@ jobs:
       - name: Baseline canary (clean 1.26.0) — profile the window
         run: |
           set -euo pipefail
+          trap 'rc=$?; echo "::error::Baseline canary failed at line $LINENO (exit $rc)"' ERR
           T0=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
+          echo "[gate-c] baseline window starts at $T0"
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
             python3 scenarios/agent-framework/harness/canary-run.py \
             --version-dir scenarios/agent-framework/package/v1.26.0 \
@@ -309,7 +323,9 @@ jobs:
       - name: Control — second clean canary must diff CLEAN (exit 0)
         run: |
           set -euo pipefail
+          trap 'rc=$?; echo "::error::Control canary failed at line $LINENO (exit $rc)"' ERR
           T1=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
+          echo "[gate-c] control window starts at $T1"
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
             python3 scenarios/agent-framework/harness/canary-run.py \
             --version-dir scenarios/agent-framework/package/v1.26.0 \
@@ -337,6 +353,7 @@ jobs:
       - name: 'C1: 1.26.1 canary — profile, diff vs baseline, record verdict'
         run: |
           set -euo pipefail
+          trap 'rc=$?; echo "::error::C1 canary failed at line $LINENO (exit $rc)"' ERR
           T2=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
             python3 scenarios/agent-framework/harness/canary-run.py \
@@ -365,6 +382,7 @@ jobs:
       - name: 'C2: 1.26.2 canary — profile, diff vs baseline, record verdict'
         run: |
           set -euo pipefail
+          trap 'rc=$?; echo "::error::C2 canary failed at line $LINENO (exit $rc)"' ERR
           T3=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
             python3 scenarios/agent-framework/harness/canary-run.py \
