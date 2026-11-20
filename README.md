@@ -76,6 +76,12 @@ The point of the contrast: scenario A engages the gate/detection/enforcement
 ladder; scenario B engages only the contract — and that asymmetry is stated,
 not papered over ([docs/TDS.md](docs/TDS.md), limitation 9.0).
 
+## Scenario C: Java2Shell (CVE-2026-114938)
+
+| # | Defense | What the demo proves |
+|---|---------|----------------------|
+| 1 | **Runtime detection** | A Java 17 service fixture runs the four post-RCE behaviors for real inside a disposable container; the transpiled bundle (slot 3) fires the mapped drift rules — 100311 (shell exec), 100321 (webshell write), 100331 (C2 connect) — plus sustained children 100312/100322/100332 on the session replay; benign stays silent. The in-JVM `defineClass` leg is recorded as expected-silent (committed finding). Issue #14, evidence: [docs/java2shell/detection-evidence.md](docs/java2shell/detection-evidence.md) |
+
 ## Run the demos
 
 Everything is loopback-only; the CI asserts that no non-loopback socket is
@@ -100,6 +106,7 @@ The layer lanes run in CI on push/PR (watch them under
 | Layer 3: enforcement | `enforce-block.yml` | exfil POST fails closed (0 new sink receipts, REJECT counter hit), clean 1.26.0 unaffected — [docs/agent-framework/enforce-evidence.md](docs/agent-framework/enforce-evidence.md) |
 | Scenario B: PHP2Shell detection | `php-detection.yml` | rules 100111/100121/100131/100163 fire on live post-exploit behaviors — [docs/php2shell/detection-evidence.md](docs/php2shell/detection-evidence.md) |
 | Scenario B: PHP2Shell enforcement | `php-enforce.yml` | all four post-exploit behaviors blocked live under Enforce, benign unaffected — [docs/php2shell/enforce-evidence.md](docs/php2shell/enforce-evidence.md) |
+| Scenario C: Java2Shell detection | `java-detection.yml` | 100311/100321/100331 fire on the harness corpus, sustained children via session replay, benign silent — [docs/java2shell/detection-evidence.md](docs/java2shell/detection-evidence.md) |
 
 The full incident narrative — real 2026-11-17 timeline side-by-side with the
 demo, each layer mapped to "what would have happened when", limitations
@@ -115,13 +122,14 @@ scenarios/agent-framework/   reconstruction of the PyPI hijack (safety policy, T
   sink/              loopback-only exfil sink (stands in for webhook[.]site)
   fixtures/          synthetic credential tree (no real secrets, ever)
   php2shell/           post-exploit behavior harness + captured telemetry
+  java2shell/          scenario C: Java 17 service fixture + post-RCE harness
 upstream/corpus-1.26.0/  the REAL microsoft/agent-framework pytest corpus,
                          vendored at tag python-1.26.0 (MIT) - the baseline
                          profile is generated from upstream's own tests
 sbobs/               committed, drift-gated SBoB profiles per version
 docs/                TDS, incident map, incident report, per-layer evidence docs
 .github/workflows/   supply-chain-gate / runtime-detection / enforce-block /
-                     php-detection / php-enforce lanes
+                     php-detection / php-enforce / java-detection lanes
 ```
 
 ## Safety policy (read before touching scenarios/)
