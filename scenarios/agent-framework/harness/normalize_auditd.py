@@ -26,7 +26,15 @@ OBSERVER SCOPE (the honest rules, all stated in docs/supply-chain-evidence.md):
             AF_PROC_ROOT) count as canary behavior; everything else the
             canary interpreter does (stdlib reads, wheel/site dirs, receipts,
             guard logs, __pycache__) is excluded. The fixture tree is the
-            declared blast radius of the demo (TDS §4).
+            declared blast radius of the demo (TDS §4). Paths are emitted
+            ROOT-RELATIVE with the stable markers AF-HOME/AF-PROC: each
+            disposable canary stages the identical fixture tree under its
+            own out-dir (work/clean, work/clean2, work/mal1...), so the
+            literal out-dir prefix is the observation equivalent of an
+            inode number — it carries no behavior signal and would make
+            identical staging rows look like drift. Canonicalizing BOTH
+            sides of every diff keeps the baseline→candidate comparison
+            root-relative without filtering a single row.
   - connect only loopback (127.0.0.1) destinations count: the demo's hard
             rule is loopback-only networking; the sink and the declared
             memcache stand-in are the only peers that can legally appear.
@@ -132,10 +140,17 @@ def normalize(lines: list[str], home: str, proc_root: str,
             path = next((a.get("name", "") for a in aux if a.get("name")), "")
             if not path:
                 continue
-            if not (path.startswith(home + "/") or path.startswith(proc_root + "/")):
+            # observer scope: only the declared fixture roots count, and the
+            # emitted path is root-relative (AF-HOME/AF-PROC markers) so the
+            # per-canary out-dir prefix cannot masquerade as behavior drift
+            if path == home or path.startswith(home + "/"):
+                canonical = "AF-HOME" + path[len(home):]
+            elif path == proc_root or path.startswith(proc_root + "/"):
+                canonical = "AF-PROC" + path[len(proc_root):]
+            else:
                 continue
             bits = int(f.get("a2", "0"), 16) if call == "openat" else int(f.get("a1", "0"), 16)
-            ev = dict(base, kind="open", sbob={"path": path, "flags": flags_of(bits)})
+            ev = dict(base, kind="open", sbob={"path": canonical, "flags": flags_of(bits)})
             events.append(json.dumps(ev))
 
         elif call == "connect":

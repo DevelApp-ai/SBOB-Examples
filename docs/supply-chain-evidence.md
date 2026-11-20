@@ -118,7 +118,11 @@ the ACTUAL first-run verdicts per the expected-verdict discipline).
   candidates use the same cadence.
 - **Observer scope rules (stated, not hidden filtering):**
   opens count only under the canary fixture roots (the demo's declared
-  blast radius); connects count only to loopback (the hard rule says no
+  blast radius) and are emitted root-relative with the stable AF-HOME /
+  AF-PROC markers: each disposable canary stages the identical fixture
+  tree under its own out-dir, so the literal out-dir prefix is the
+  observation equivalent of an inode number and is canonicalized on BOTH
+  sides of every diff (no row is filtered); connects count only to loopback (the hard rule says no
   socket ever leaves); execs count every canary-uid execve (identical shape
   in every window, so exec rows self-cancel in the delta); the open-flag
   vocabulary is {O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL} — volatile
