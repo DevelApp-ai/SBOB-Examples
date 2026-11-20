@@ -70,7 +70,7 @@ Python start, no attacker cooperation needed). Details:
 | # | Defense | What the demo proves |
 |---|---------|----------------------|
 | 1 | **Runtime detection** | A live harness performs the four post-exploit behaviors (shell spawn, webshell drop, C2 connect, memfd staging) inside a disposable php-fpm container; the transpiled bundle fires 100111/100121/100131/100163 + sustained children on the REAL captured telemetry; benign stays silent. |
-| 2 | **Enforcement in anger** | AppArmor/seccomp/NetworkPolicy from `sbobctl enforce` block all four behaviors for real; the benign workload is unaffected. This is the live-behavior enforcement evidence (Stage 3) the tooling repo still lists as pending. |
+| 2 | **Enforcement in anger** | AppArmor/seccomp/NetworkPolicy from `sbobctl enforce` block all four behaviors for real; the benign workload is unaffected — live-asserted in the `php-enforce` lane, evidence in [docs/php2shell/enforce-evidence.md](docs/php2shell/enforce-evidence.md) (issue #11). |
 
 The point of the contrast: scenario A engages the gate/detection/enforcement
 ladder; scenario B engages only the contract — and that asymmetry is stated,
@@ -99,6 +99,7 @@ The layer lanes run in CI on push/PR (watch them under
 | Layer 2: runtime detection | `runtime-detection.yml` | drift rules 100221/100231 (+100222) fire, benign silent — [docs/agent-framework/runtime-evidence.md](docs/agent-framework/runtime-evidence.md) |
 | Layer 3: enforcement | `enforce-block.yml` | exfil POST fails closed (0 new sink receipts, REJECT counter hit), clean 1.26.0 unaffected — [docs/agent-framework/enforce-evidence.md](docs/agent-framework/enforce-evidence.md) |
 | Scenario B: PHP2Shell detection | `php-detection.yml` | rules 100111/100121/100131/100163 fire on live post-exploit behaviors — [docs/php2shell/detection-evidence.md](docs/php2shell/detection-evidence.md) |
+| Scenario B: PHP2Shell enforcement | `php-enforce.yml` | all four post-exploit behaviors blocked live under Enforce, benign unaffected — [docs/php2shell/enforce-evidence.md](docs/php2shell/enforce-evidence.md) |
 
 The full incident narrative — real 2026-11-17 timeline side-by-side with the
 demo, each layer mapped to "what would have happened when", limitations

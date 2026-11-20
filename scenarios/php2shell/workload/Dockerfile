@@ -57,7 +57,9 @@ RUN mkdir -p /var/lib/php/sessions \
 
 # Harness orchestration (run via docker exec once the CI lane has loaded the
 # SBoB-generated audit fragment; see scenarios/php2shell/harness/).
-COPY harness/run-behaviors.sh harness/capture-window.sh /opt/harness/
+# run-enforce.sh is the M7 (issue #11) in-container half of the php-enforce
+# lane: it applies the enforce artifacts' semantics and asserts the blocks.
+COPY harness/run-behaviors.sh harness/capture-window.sh harness/run-enforce.sh /opt/harness/
 RUN chmod +x /opt/harness/*.sh
 
 COPY workload/entrypoint.sh /opt/entrypoint.sh

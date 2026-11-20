@@ -1,0 +1,5 @@
+<!-- sbobctl generated — enforcement telemetry ingestion (TDS 14.6, M7) -->
+<localfile>
+  <location>/var/ossec/logs/sbob-enforce.log</location>
+  <log_format>json</log_format>
+</localfile>
