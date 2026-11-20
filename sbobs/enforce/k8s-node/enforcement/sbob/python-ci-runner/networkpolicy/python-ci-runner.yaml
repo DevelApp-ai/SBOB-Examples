@@ -1,0 +1,30 @@
+# sbobctl generated NetworkPolicy — workload: python-ci-runner (TDS 14.4, M7)
+# states: egress=enforce ingress=audit
+# AUDIT: do NOT apply live — Calico staged policy or --dry-run=server only (TDS 14)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sbob-python-ci-runner
+  namespace: ci-tier
+  annotations:
+    sbob.k8sstormcenter.io/mode: "audit"
+    sbob.k8sstormcenter.io/workload: "python-ci-runner"
+spec:
+  podSelector:
+    matchLabels:
+      sbob.k8sstormcenter.io/workload: python-ci-runner
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 10.96.100.20/32
+      ports:
+        - protocol: TCP
+          port: 443
+  # ingress: section absent

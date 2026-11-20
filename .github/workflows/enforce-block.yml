@@ -1,0 +1,215 @@
+name: enforce-block
+
+# Scenario A (agent-framework) M4 lane: layer-3 enforcement (issue #5).
+#
+# Proves, in one disposable NET_ADMIN container (TDS §7), what layer 3 would
+# have changed during the 2026-11-17 hijack for the consumer workload
+# (sbobs/workload/python-ci-runner.yaml) at rollout state
+# sbobs/enforce-state.yaml (Monitor -> Audit -> Enforce; ONLY the egress
+# section has advanced to enforce, after the M3 clean-window audit
+# attestation — the deliberate rung is the committed state file):
+#
+#   1. drift gate: the committed enforce bundles (sbobs/enforce/{k8s-node,
+#      linux}) regenerate exactly from the pinned sbobctl + the committed
+#      profile + state file (the transpile/enforce IS the drift gate;
+#      sbobctl also refuses invalid Monitor -> Audit -> Enforce ladders and
+#      enforcement without a clean audit record — ERR_ENFORCE_NOT_AUDITED)
+#   2. enforcement demo: the NetworkPolicy artifact's egress section
+#      semantics, translated to a uid-scoped iptables allowlist, applied
+#      LIVE inside the container (the proven lane; k8s NetworkPolicies
+#      cannot run in GitHub CI). podSelector -> uid translation: the
+#      scenario workload always runs as the dedicated uid 1500 via setpriv;
+#      the sink/orchestrator run as root and are policy-exempt.
+#
+# Expected-verdict assertions (TDS §7: verdicts recorded as ::notice + step
+# summaries, pinned in env below, never forced):
+#   contrast 1.26.1/1.26.2 (rules absent): one receipt each (M1 parity: the
+#             hijacked releases DO exfiltrate when nothing enforces)
+#   declared peers (rules present, uid 1500): cluster-dns UDP 10.96.0.10:53
+#             and pypi-mirror TCP 10.96.100.20:443 are ACCEPTED (no REJECT
+#             hit; delivery untestable from CI — peers are lab-cluster IPs)
+#   undeclared peer (rules present, uid 1500): 9.9.9.9:53 hits the REJECT
+#             counter (fail closed)
+#   enforced 1.26.1/1.26.2 (rules present): the same releases build, install
+#             and run an ordinary interpreter start, the exfil POST fails
+#             closed — ZERO new receipts, REJECT counter increments, the
+#             stealer swallows the refusal (exit 0, faithful reconstruction)
+#   clean 1.26.0 (rules present): exit 0, ZERO receipts, ZERO REJECT hits
+#             (no false positive: legitimate startup is untouched)
+#
+# Honest limitations (documented in docs/agent-framework/enforce-evidence.md,
+# not papered over): the committed AppArmor and seccomp artifacts are
+# documented-with-artifacts variants (issue #5 names the NetworkPolicy shape
+# as the proven/live lane); the NetworkPolicy artifact carries a mode:
+# "audit" annotation because the generator only labels an artifact "enforce"
+# when BOTH egress and ingress sections advance (see sbobs/enforce-state.yaml
+# for the recorded finding); the egress-only rung is enforced by semantics,
+# not by that label.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "sbobs/**"
+      - "scenarios/agent-framework/harness/**"
+      - ".github/workflows/enforce-block.yml"
+      - "docs/agent-framework/enforce-evidence.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # SHA-pinned toolchain (TDS §7/§8)
+  SBOB_REPO: DevelApp-ai/Software-Bill-of-Behavior
+  SBOB_PIN: 4bf2eb1d2413de388c10a0c7de38026e07e46fd7
+  # consumer workload profile + registry + rollout state (M4)
+  SBOB_FILE: sbobs/workload/python-ci-runner.yaml
+  SBOB_REGISTRY: sbobs/registry.yaml
+  ENFORCE_STATE: sbobs/enforce-state.yaml
+  ENFORCE_BUNDLES: sbobs/enforce
+  # demo container
+  ENFORCE_IMAGE: sbob-af-enforce:local
+  # pinned expected verdicts (recorded on the first green run, then pinned)
+  AF_EXPECT_CONTRAST_RECEIPTS: "1"
+  AF_EXPECT_ENFORCED_RECEIPTS: "0"
+  AF_EXPECT_CLEAN_RECEIPTS: "0"
+  AF_EXPECT_ENFORCED_REJECT_GTE: "1"
+  AF_EXPECT_UNDECLARED_REJECT_GTE: "1"
+  AF_EXPECT_DECLARED_REJECT_DELTA: "0"
+  AF_EXPECT_CLEAN_REJECT_DELTA: "0"
+  # recorded from the lane's actual green runs: the swallowed refusal keeps
+  # the interpreter start at exit 0 (faithful reconstruction)
+  AF_EXPECT_INTERPRETER_RC: "0"
+
+jobs:
+  enforce-block:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout SBOB-Examples
+        uses: actions/checkout@v4
+
+      - name: Checkout the SHA-pinned SBoB toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SBOB_REPO }}
+          ref: ${{ env.SBOB_PIN }}
+          path: sbob-repo
+
+      - name: Node 22 (native type stripping, zero npm install)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: "Drift gate: regenerate the committed enforce bundles and diff (k8s-node + linux)"
+        run: |
+          set -o pipefail
+          cd sbob-repo
+          for target in k8s-node linux; do
+            echo "--- regenerate target $target ---"
+            node src/cli.ts enforce --sbob "$GITHUB_WORKSPACE/$SBOB_FILE" \
+              --registry "$GITHUB_WORKSPACE/$SBOB_REGISTRY" \
+              --state "$GITHUB_WORKSPACE/$ENFORCE_STATE" \
+              --out "$GITHUB_WORKSPACE/dist/enforce-$target" \
+              --target "$target" --skip-signature-verify \
+              2>&1 | tee "$GITHUB_WORKSPACE/enforce-$target.log"
+          done
+          cd "$GITHUB_WORKSPACE"
+          rc=0
+          for target in k8s-node linux; do
+            echo "--- drift check: dist/enforce-$target vs $ENFORCE_BUNDLES/$target ---"
+            if ! diff -r "dist/enforce-$target" "$ENFORCE_BUNDLES/$target" > "drift-$target.diff" 2>&1; then
+              rc=1
+              cat "drift-$target.diff"
+              echo "::error title=enforce-drift::$ENFORCE_BUNDLES/$target is out of sync with the pinned toolchain + state file (see drift-$target.diff)"
+            fi
+            test -f "$ENFORCE_BUNDLES/$target/python-ci-runner-enforce.manifest.json" \
+              || { echo "::error title=enforce-drift::manifest for $target missing"; rc=1; }
+          done
+          cat drift-k8s-node.diff drift-linux.diff
+          echo "committed enforce bundles match the pinned generation (targets: k8s-node, linux)"
+          echo "state file: $ENFORCE_STATE (egress is the only section advanced to enforce)"
+          grep -n "egress: enforce" "$ENFORCE_STATE"
+          echo "::notice title=enforce-drift::$ENFORCE_BUNDLES/{k8s-node,linux} regenerate byte-identical from pin $SBOB_PIN + $ENFORCE_STATE"
+          exit $rc
+
+      - name: "Enforcement demo: NetworkPolicy egress semantics, live, uid-scoped (fail closed)"
+        run: |
+          set -o pipefail
+          docker build -t "$ENFORCE_IMAGE" \
+            -f scenarios/agent-framework/harness/enforce.Dockerfile .
+          work=$(mktemp -d)
+          echo "work dir: $work"
+          docker run --rm --cap-add=NET_ADMIN \
+            -v "$GITHUB_WORKSPACE:/src:ro" \
+            -v "$work:/opt/af-work" \
+            -e AF_EXPECT_CONTRAST_RECEIPTS -e AF_EXPECT_ENFORCED_RECEIPTS \
+            -e AF_EXPECT_CLEAN_RECEIPTS -e AF_EXPECT_ENFORCED_REJECT_GTE \
+            -e AF_EXPECT_UNDECLARED_REJECT_GTE -e AF_EXPECT_DECLARED_REJECT_DELTA \
+            -e AF_EXPECT_CLEAN_REJECT_DELTA -e AF_EXPECT_INTERPRETER_RC \
+            "$ENFORCE_IMAGE" \
+            python3 /src/scenarios/agent-framework/harness/enforce_orchestrator.py \
+              --repo /src --work /opt/af-work \
+            2>&1 | tee enforce-demo.log
+          cp "$work/verdicts.json" verdicts.json
+          cp "$work/receipts.jsonl" receipts.jsonl 2>/dev/null || touch receipts.jsonl
+          grep -q "^M4-VERDICT overall=PASS" enforce-demo.log \
+            || { echo "::error title=enforce-block::overall verdict is not PASS (see enforce-demo.log + verdicts.json)"; exit 1; }
+          {
+            echo "## enforce-block verdicts (scenario A M4)"
+            python3 -c 'import json; v=json.load(open("verdicts.json")); print("| leg | verdict | detail |"); print("|---|---|---|"); [print("| %s | %s | %s |" % (l["leg"], "PASS" if l["passed"] else "**FAIL**", " ".join("%s=%s" % (k, l[k]) for k in ("rc", "receipts_new", "reject_delta", "guard_violations") if k in l))) for l in v["legs"]]; print("overall: **%s** (iptables: %s)" % (v["overall"], v["iptables"]))'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=enforce-block::all legs PASS: malicious 1.26.1/1.26.2 blocked ($AF_EXPECT_ENFORCED_RECEIPTS receipts, REJECT counter hit), clean 1.26.0 no false positive ($AF_EXPECT_CLEAN_RECEIPTS receipts, $AF_EXPECT_CLEAN_REJECT_DELTA REJECT)"
+
+      - name: Verdict summary
+        if: always()
+        run: |
+          {
+            echo "## enforce-block lane (scenario A M4)"
+            echo "| gate | verdict |"
+            echo "|---|---|"
+            for f in enforce-k8s-node.log enforce-linux.log drift-k8s-node.diff drift-linux.diff enforce-demo.log; do
+              if [ ! -f "$f" ]; then v="(not reached)";
+              elif grep -qE "^FAIL:|^ERROR:|^::error" "$f"; then v="**FAIL** (see $f artifact)";
+              else v="PASS"; fi
+              echo "| $f | $v |"
+            done
+            echo "SBoB toolchain pin: \`${SBOB_PIN}\` ; state: \`${ENFORCE_STATE}\`"
+          } >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Failure diagnostics (step summary)
+        if: failure()
+        run: |
+          set +e
+          {
+            echo "## enforce-block diagnostics"
+            echo '```'
+            docker ps -a 2>&1 | sed -n 1,10p
+            echo "--- enforce demo log tail ---"
+            tail -60 enforce-demo.log 2>/dev/null
+            echo "--- verdicts ---"
+            cat verdicts.json 2>/dev/null
+            echo "--- receipts tail ---"
+            tail -5 receipts.jsonl 2>/dev/null
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          echo "::error title=fail-lines::$(grep -hE '^FAIL:|^ERROR:|MISMATCH' enforce-k8s-node.log enforce-linux.log enforce-demo.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"
+
+      - name: Upload lane artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enforce-block-evidence
+          if-no-files-found: warn
+          path: |
+            enforce-k8s-node.log
+            enforce-linux.log
+            drift-k8s-node.diff
+            drift-linux.diff
+            enforce-demo.log
+            verdicts.json
+            receipts.jsonl
+            dist/enforce-k8s-node/python-ci-runner-enforce.manifest.json
+            dist/enforce-linux/python-ci-runner-enforce.manifest.json
