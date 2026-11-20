@@ -216,15 +216,16 @@ jobs:
       - name: 'B1: 1.26.1 — generate, convert, diff, record verdict'
         run: |
           set -euo pipefail
-          trap 'rc=$?; echo "::error::B1 failed at line $LINENO (exit $rc)"; if ls work/b1/sbob/*.coverage.json >/dev/null 2>&1; then echo "B1 coverage report:"; head -c 4000 work/b1/sbob/*.coverage.json; fi' ERR
+          trap 'rc=$?; echo "::error::B1 failed at line $LINENO (exit $rc)"; if ls work/b1/sbob/*.coverage.json >/dev/null 2>&1; then c=$(head -c 3500 work/b1/sbob/*.coverage.json); echo "::error::B1 coverage: ${c//$'"'"'\n'"'"'/%0A}"; fi; if [ -f work/convert-1.26.1.log ]; then v=$(tail -c 800 work/convert-1.26.1.log); echo "::error::B1 convert log tail: ${v//$'"'"'\n'"'"'/%0A}"; fi; if [ -f work/diff-1.26.1.md ]; then t=$(tail -c 1500 work/diff-1.26.1.md); echo "::error::B1 diff tail: ${t//$'"'"'\n'"'"'/%0A}"; fi; if [ -f work/report-1.26.1.json ]; then r=$(head -c 1500 work/report-1.26.1.json); echo "::error::B1 report json: ${r//$'"'"'\n'"'"'/%0A}"; fi; if [ -f work/candidate-1.26.1.yaml ]; then y=$(head -c 2500 work/candidate-1.26.1.yaml); echo "::error::B1 candidate yaml head: ${y//$'"'"'\n'"'"'/%0A}"; fi' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.1 work/b1
           "$GITHUB_WORKSPACE/forge/out/sbobforge" lock work/b1 --update
           (cd work/b1 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b1.log
           "$GITHUB_WORKSPACE/forge/out/sbobforge" convert \
-            work/b1/sbob/*.sbob.yaml work/candidate-1.26.1.yaml
+            work/b1/sbob/*.sbob.yaml work/candidate-1.26.1.yaml \
+            2>&1 | tee work/convert-1.26.1.log
           (cd sbob && node src/cli.ts diff \
             --old ../work/baseline-1.26.0.yaml --new ../work/candidate-1.26.1.yaml \
-            --report ../work/report-1.26.1.json --fail-on none) | tee work/diff-1.26.1.md
+            --report ../work/report-1.26.1.json --fail-on none) 2>&1 | tee work/diff-1.26.1.md
           python3 - <<'PY'
           import json
           r = json.load(open("work/report-1.26.1.json"))
@@ -235,15 +236,16 @@ jobs:
       - name: 'B2: 1.26.2 — generate, convert, diff, record verdict'
         run: |
           set -euo pipefail
-          trap 'rc=$?; echo "::error::B2 failed at line $LINENO (exit $rc)"; if ls work/b2/sbob/*.coverage.json >/dev/null 2>&1; then echo "B2 coverage report:"; head -c 4000 work/b2/sbob/*.coverage.json; fi' ERR
+          trap 'rc=$?; echo "::error::B2 failed at line $LINENO (exit $rc)"; if ls work/b2/sbob/*.coverage.json >/dev/null 2>&1; then c=$(head -c 3500 work/b2/sbob/*.coverage.json); echo "::error::B2 coverage: ${c//$'"'"'\n'"'"'/%0A}"; fi; if [ -f work/convert-1.26.2.log ]; then v=$(tail -c 800 work/convert-1.26.2.log); echo "::error::B2 convert log tail: ${v//$'"'"'\n'"'"'/%0A}"; fi; if [ -f work/diff-1.26.2.md ]; then t=$(tail -c 1500 work/diff-1.26.2.md); echo "::error::B2 diff tail: ${t//$'"'"'\n'"'"'/%0A}"; fi; if [ -f work/report-1.26.2.json ]; then r=$(head -c 1500 work/report-1.26.2.json); echo "::error::B2 report json: ${r//$'"'"'\n'"'"'/%0A}"; fi; if [ -f work/candidate-1.26.2.yaml ]; then y=$(head -c 2500 work/candidate-1.26.2.yaml); echo "::error::B2 candidate yaml head: ${y//$'"'"'\n'"'"'/%0A}"; fi' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.2 work/b2
           "$GITHUB_WORKSPACE/forge/out/sbobforge" lock work/b2 --update
           (cd work/b2 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b2.log
           "$GITHUB_WORKSPACE/forge/out/sbobforge" convert \
-            work/b2/sbob/*.sbob.yaml work/candidate-1.26.2.yaml
+            work/b2/sbob/*.sbob.yaml work/candidate-1.26.2.yaml \
+            2>&1 | tee work/convert-1.26.2.log
           (cd sbob && node src/cli.ts diff \
             --old ../work/baseline-1.26.0.yaml --new ../work/candidate-1.26.2.yaml \
-            --report ../work/report-1.26.2.json --fail-on none) | tee work/diff-1.26.2.md
+            --report ../work/report-1.26.2.json --fail-on none) 2>&1 | tee work/diff-1.26.2.md
           python3 - <<'PY'
           import json
           r = json.load(open("work/report-1.26.2.json"))
@@ -295,16 +297,25 @@ jobs:
       - name: Dedicated canary uid + observer setup
         run: |
           set -euo pipefail
+          trap 'rc=$?; echo "::error::setup failed at line $LINENO (exit $rc)"' ERR
           sudo useradd -m "$CANARY_USER" 2>/dev/null || true
           CANARY_UID=$(id -u "$CANARY_USER")
           echo "CANARY_UID=$CANARY_UID" >> "$GITHUB_ENV"
-          # work-canary: the disposable canary's own tree (its uid must write
-          # it); work-evidence: runner-side normalization/profile/diff outputs
-          sudo mkdir -p work-canary
-          sudo chown "$CANARY_USER":"$CANARY_USER" work-canary
-          sudo chmod 755 work-canary
+          # The runner's home workspace is not traversable for the disposable
+          # canary uid (sudo -u python exits 2 opening it: EACCES on a parent
+          # dir). Stage a canary-visible mirror under /opt/af-canary with the
+          # same repo-relative layout canary-run.py derives its REPO from
+          # (REPO/scenarios/agent-framework/{harness,support,package}); the
+          # canary uid writes its work tree there, the runner-side steps read
+          # evidence back through the same tree.
+          sudo rm -rf /opt/af-canary
+          sudo mkdir -p /opt/af-canary/scenarios
+          sudo cp -r scenarios/agent-framework /opt/af-canary/scenarios/agent-framework
+          sudo chown -R "$CANARY_USER":"$CANARY_USER" /opt/af-canary
+          sudo chmod -R a+rX /opt/af-canary
           mkdir -p work-evidence
           sudo bash scenarios/agent-framework/harness/canary-observer.sh setup "$CANARY_UID"
+          echo "AF_SCENARIO=/opt/af-canary/scenarios/agent-framework" >> "$GITHUB_ENV"
 
       - name: Baseline canary (clean 1.26.0) — profile the window
         run: |
@@ -313,14 +324,15 @@ jobs:
           T0=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           echo "[gate-c] baseline window starts at $T0"
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
-            python3 "$GITHUB_WORKSPACE/scenarios/agent-framework/harness/canary-run.py" \
-            --version-dir "$GITHUB_WORKSPACE/scenarios/agent-framework/package/v1.26.0" \
-            --out-dir "$GITHUB_WORKSPACE/work-canary/clean" --starts 3 --expect-receipts-per-start 0
+            python3 "$AF_SCENARIO/harness/canary-run.py" \
+            --version-dir "$AF_SCENARIO/package/v1.26.0" \
+            --out-dir "$AF_SCENARIO/work/clean" --starts 3 --expect-receipts-per-start 0
           sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
-            "$CANARY_UID" "$T0" work-canary/clean.audit
+            "$CANARY_UID" "$T0" "$AF_SCENARIO/work/clean.audit"
           python3 scenarios/agent-framework/harness/normalize_auditd.py \
-            work-canary/clean.audit work-canary/clean/fixtures/home \
-            work-canary/clean/fixtures/proc af-canary work-evidence/events-clean.jsonl
+            "$AF_SCENARIO/work/clean.audit" "$AF_SCENARIO/work/clean/fixtures/home" \
+            "$AF_SCENARIO/work/clean/fixtures/proc" af-canary work-evidence/events-clean.jsonl
+          cp "$AF_SCENARIO/work/clean.audit" work-evidence/clean.audit
           (cd sbob && node src/cli.ts profile \
             --events ../work-evidence/events-clean.jsonl \
             --workload af-canary --image demo://af-canary \
@@ -333,14 +345,15 @@ jobs:
           T1=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           echo "[gate-c] control window starts at $T1"
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
-            python3 "$GITHUB_WORKSPACE/scenarios/agent-framework/harness/canary-run.py" \
-            --version-dir "$GITHUB_WORKSPACE/scenarios/agent-framework/package/v1.26.0" \
-            --out-dir "$GITHUB_WORKSPACE/work-canary/clean2" --starts 3 --expect-receipts-per-start 0
+            python3 "$AF_SCENARIO/harness/canary-run.py" \
+            --version-dir "$AF_SCENARIO/package/v1.26.0" \
+            --out-dir "$AF_SCENARIO/work/clean2" --starts 3 --expect-receipts-per-start 0
           sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
-            "$CANARY_UID" "$T1" work-canary/clean2.audit
+            "$CANARY_UID" "$T1" "$AF_SCENARIO/work/clean2.audit"
           python3 scenarios/agent-framework/harness/normalize_auditd.py \
-            work-canary/clean2.audit work-canary/clean2/fixtures/home \
-            work-canary/clean2/fixtures/proc af-canary work-evidence/events-clean2.jsonl
+            "$AF_SCENARIO/work/clean2.audit" "$AF_SCENARIO/work/clean2/fixtures/home" \
+            "$AF_SCENARIO/work/clean2/fixtures/proc" af-canary work-evidence/events-clean2.jsonl
+          cp "$AF_SCENARIO/work/clean2.audit" work-evidence/clean2.audit
           (cd sbob && node src/cli.ts profile \
             --events ../work-evidence/events-clean2.jsonl \
             --workload af-canary --image demo://af-canary \
@@ -362,14 +375,15 @@ jobs:
           trap 'rc=$?; echo "::error::C1 canary failed at line $LINENO (exit $rc)"' ERR
           T2=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
-            python3 "$GITHUB_WORKSPACE/scenarios/agent-framework/harness/canary-run.py" \
-            --version-dir "$GITHUB_WORKSPACE/scenarios/agent-framework/package/v1.26.1" \
-            --out-dir "$GITHUB_WORKSPACE/work-canary/mal1" --starts 3 --expect-receipts-per-start 1
+            python3 "$AF_SCENARIO/harness/canary-run.py" \
+            --version-dir "$AF_SCENARIO/package/v1.26.1" \
+            --out-dir "$AF_SCENARIO/work/mal1" --starts 3 --expect-receipts-per-start 1
           sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
-            "$CANARY_UID" "$T2" work-canary/mal1.audit
+            "$CANARY_UID" "$T2" "$AF_SCENARIO/work/mal1.audit"
           python3 scenarios/agent-framework/harness/normalize_auditd.py \
-            work-canary/mal1.audit work-canary/mal1/fixtures/home \
-            work-canary/mal1/fixtures/proc af-canary work-evidence/events-mal1.jsonl
+            "$AF_SCENARIO/work/mal1.audit" "$AF_SCENARIO/work/mal1/fixtures/home" \
+            "$AF_SCENARIO/work/mal1/fixtures/proc" af-canary work-evidence/events-mal1.jsonl
+          cp "$AF_SCENARIO/work/mal1.audit" work-evidence/mal1.audit
           (cd sbob && node src/cli.ts profile \
             --events ../work-evidence/events-mal1.jsonl \
             --workload af-canary --image demo://af-canary \
@@ -391,14 +405,15 @@ jobs:
           trap 'rc=$?; echo "::error::C2 canary failed at line $LINENO (exit $rc)"' ERR
           T3=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
-            python3 "$GITHUB_WORKSPACE/scenarios/agent-framework/harness/canary-run.py" \
-            --version-dir "$GITHUB_WORKSPACE/scenarios/agent-framework/package/v1.26.2" \
-            --out-dir "$GITHUB_WORKSPACE/work-canary/mal2" --starts 3 --expect-receipts-per-start 1
+            python3 "$AF_SCENARIO/harness/canary-run.py" \
+            --version-dir "$AF_SCENARIO/package/v1.26.2" \
+            --out-dir "$AF_SCENARIO/work/mal2" --starts 3 --expect-receipts-per-start 1
           sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
-            "$CANARY_UID" "$T3" work-canary/mal2.audit
+            "$CANARY_UID" "$T3" "$AF_SCENARIO/work/mal2.audit"
           python3 scenarios/agent-framework/harness/normalize_auditd.py \
-            work-canary/mal2.audit work-canary/mal2/fixtures/home \
-            work-canary/mal2/fixtures/proc af-canary work-evidence/events-mal2.jsonl
+            "$AF_SCENARIO/work/mal2.audit" "$AF_SCENARIO/work/mal2/fixtures/home" \
+            "$AF_SCENARIO/work/mal2/fixtures/proc" af-canary work-evidence/events-mal2.jsonl
+          cp "$AF_SCENARIO/work/mal2.audit" work-evidence/mal2.audit
           (cd sbob && node src/cli.ts profile \
             --events ../work-evidence/events-mal2.jsonl \
             --workload af-canary --image demo://af-canary \
@@ -449,4 +464,4 @@ jobs:
             work-evidence/diff-*.md
             work-evidence/c1-verdict.txt
             work-evidence/c2-verdict.txt
-            work-canary/*.audit
+            work-evidence/*.audit
