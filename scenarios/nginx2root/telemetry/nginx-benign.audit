@@ -1,0 +1,18 @@
+# Benign events: fully inside the nginx-worker SBoB (slot 4). None of these
+# should fire an sbob drift rule (expected: only the level-0 base chain).
+# uid=101 is the nginx worker user in the official image.
+
+type=SYSCALL msg=audit(1699999900.100:1001): arch=c000003e syscall=257 success=yes exit=3 items=1 ppid=1 pid=2001 auid=4294967295 uid=101 gid=101 euid=101 suid=101 fsuid=101 egid=101 sgid=101 fsgid=101 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=unconfined key="sbob-open-nginx-worker"
+type=PATH msg=audit(1699999900.100:1001): item=0 name="/etc/nginx/nginx.conf" inode=4211 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1699999901.200:1002): arch=c000003e syscall=257 success=yes exit=4 items=1 ppid=2001 pid=2002 auid=4294967295 uid=101 gid=101 euid=101 suid=101 fsuid=101 egid=101 sgid=101 fsgid=101 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=unconfined key="sbob-open-nginx-worker"
+type=PATH msg=audit(1699999901.200:1002): item=0 name="/var/www/html/index.html" inode=9102 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1699999902.300:1003): arch=c000003e syscall=257 success=yes exit=5 items=1 ppid=2001 pid=2003 auid=4294967295 uid=101 gid=101 euid=101 suid=101 fsuid=101 egid=101 sgid=101 fsgid=101 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=unconfined key="sbob-open-nginx-worker"
+type=PATH msg=audit(1699999902.300:1003): item=0 name="/var/log/nginx/access.log" inode=9103 dev=fd:01 mode=0100644 ouid=101 ogid=101 rdev=00:00 nametype=CREATE cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1699999903.400:1004): arch=c000003e syscall=257 success=yes exit=6 items=1 ppid=2001 pid=2004 auid=4294967295 uid=101 gid=101 euid=101 suid=101 fsuid=101 egid=101 sgid=101 fsgid=101 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=unconfined key="sbob-open-nginx-worker"
+type=PATH msg=audit(1699999903.400:1004): item=0 name="/etc/resolv.conf" inode=14437 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1699999904.500:1005): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2001 pid=2005 auid=4294967295 uid=101 gid=101 euid=101 suid=101 fsuid=101 egid=101 sgid=101 fsgid=101 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=unconfined key="sbob-connect-nginx-worker"
+type=SOCKADDR msg=audit(1699999904.500:1005): saddr=02001F900A6064280000000000000000
