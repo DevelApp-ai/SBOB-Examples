@@ -1,0 +1,77 @@
+# SBOB-EXAMPLES DEMO WATERMARK — synthetic auditd corpus, scenario A (M3,
+# issue #4). Not captured telemetry: the reconstruction's observer model,
+# synthetic inode/pid/timestamp fields; every path mirrors the M1
+# reconstruction's actual collection lists (docs/agent-framework/
+# incident-map.md). The exfil endpoint is the loopback-only sink standing in
+# for webhook[.]site (TDS §4); port 8099 is the reconstruction's sink default.
+#
+# Drift window: the FIRST interpreter start after the malicious release is
+# installed (the .pth hook fires with zero test reachability). Expected fired
+# rule ids (band = slot 2, sbobs/registry.yaml):
+#   100221  open drift    — /proc/*/environ sweep + credential-file reads:
+#                          nothing outside site-packages, the repo checkout
+#                          and resolv.conf is a declared open
+#   100231  connect drift — the single exfil POST to the sink (undeclared peer)
+# Honest absences (asserted by the lane, the finding is the point):
+#   100211  exec drift stays QUIET: the stealer lives INSIDE the declared
+#          interpreter (fork + daemon thread, no execve) — unlike php2shell,
+#          where the shell exec fires. Mode A exe-scoping keys the malicious
+#          process because the interpreter itself is the compromised exe.
+#   100201  sensitive-file overlay stays QUIET: the stealer's cloud
+#          credential set (.azure/, .npmrc, .git-credentials, runner tokens)
+#          is NOT on the sensitive-file watchlist (shadow/sudoers/.ssh/
+#          id_rsa) — the cloud-credential watchlist gap, M2 finding 3's
+#          roadmap ask, recorded in docs/agent-framework/runtime-evidence.md.
+#   100222/100232 sustained children stay QUIET in the single pass: the real
+#          stealer reads MANY files but connects EXACTLY ONCE (single-POST,
+#          no-retry semantics). Sustained capability is proven on the
+#          synthetic repetition corpus (sustained.audit).
+#   The DNS leg is QUIET on purpose: resolving the exfil domain rides the
+#          declared resolver (TDS §9.3 DNS-blind limitation) — the CONNECT to
+#          the resolved sink IP is what alerts.
+
+type=SYSCALL msg=audit(1700000200.100:7001): arch=c000003e syscall=59 success=yes exit=0 items=2 ppid=1 pid=2201 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-exec-python-ci-runner"
+type=EXECVE msg=audit(1700000200.100:7001): argc=3 a0="/usr/local/bin/python3.12" a1="-m" a2="pytest"
+
+# .pth-triggered import at interpreter start — INSIDE the declared
+# site-packages glob: path-level opens cannot see module semantics (TDS §9.4
+# blind spot; the credential sweep below is what drifts).
+type=SYSCALL msg=audit(1700000200.150:7002): arch=c000003e syscall=257 success=yes exit=3 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000200.150:7002): item=0 name="/usr/local/lib/python3.12/site-packages/agent_framework_meta.pth" inode=3301 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000200.160:7003): arch=c000003e syscall=257 success=yes exit=3 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000200.160:7003): item=0 name="/usr/local/lib/python3.12/site-packages/agent_framework_meta/_telemetry.py" inode=3302 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+# /proc/*/environ sweep (M1 reconstruction: pseudo-proc tree, up to 300 reads)
+type=SYSCALL msg=audit(1700000200.300:7010): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000200.300:7010): item=0 name="/proc/391/environ" inode=1 dev=00:03 mode=0100400 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000200.301:7011): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000200.301:7011): item=0 name="/proc/392/environ" inode=1 dev=00:03 mode=0100400 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+# Credential files (1.26.1 collection list: .azure/, .npmrc, .git-credentials,
+# ADO agent .credentials; synthetic fixtures only, TDS §4)
+type=SYSCALL msg=audit(1700000200.400:7020): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000200.400:7020): item=0 name="/home/runner/.azure/azureProfile.json" inode=5100 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000200.401:7021): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000200.401:7021): item=0 name="/home/runner/.npmrc" inode=5101 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000200.402:7022): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000200.402:7022): item=0 name="/home/runner/.git-credentials" inode=5102 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000200.403:7023): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000200.403:7023): item=0 name="/home/runner/.azure-devops/agent/.credentials" inode=5103 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+# 1.26.2 addition: runner-path tokens — OUTSIDE the declared repo checkout
+type=SYSCALL msg=audit(1700000200.404:7024): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000200.404:7024): item=0 name="/home/runner/work/_temp/gha_token" inode=5104 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+# DNS resolution of the exfil domain — rides the DECLARED resolver (quiet);
+# the raw-IP/DNS-blind limitation is the honest point (TDS §9.3)
+type=SYSCALL msg=audit(1700000200.500:7030): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000200.500:7030): saddr=020000350A60000A0000000000000000
+
+# The single exfil POST to the sink (undeclared peer) — 100231 fires
+type=SYSCALL msg=audit(1700000200.600:7040): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000200.600:7040): saddr=02001FA37F0000010000000000000000

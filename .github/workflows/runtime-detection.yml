@@ -1,0 +1,279 @@
+name: runtime-detection
+
+# Scenario A (agent-framework) M3 lane: layer-2 runtime detection (issue #4).
+#
+# Proves, in one disposable CI environment (TDS §7), what the layer would have
+# changed during the 2026-11-17 hijack:
+#   1. the consumer workload profile (a Python CI runner using agent-framework,
+#      sbobs/workload/python-ci-runner.yaml) is committed, schema-validated
+#      and transpiles (drift-gated: pinned toolchain + pinned manifest =
+#      deterministic artifacts; the transpile IS the drift gate)
+#   2. the bundle loads on a pinned disposable wazuh-manager (the hardened
+#      lab-validate pattern: analysisd -t zero errors/warnings, anchored
+#      status grep, no masked exit codes)
+#   3. the synthetic scenario-A corpus replays through wazuh-logtest:
+#      benign (clean 1.26.0 on the runner) => ZERO drift alerts; drift (first
+#      interpreter start after the malicious release is installed) => open
+#      drift 100221 (/proc/*/environ + credential reads) + connect drift
+#      100231 (the single exfil POST to the sink); sustained (synthetic 8x
+#      repetition) => 100222 + 100232. Honest absences asserted as verdicts:
+#      100211 exec drift (the stealer lives INSIDE the declared interpreter),
+#      100201 sensitive-file overlay (cloud credentials are not on the
+#      watchlist). Corpus->rule expectations verified on a local
+#      wazuh-manager 4.14.6 replica before the first run.
+#   4. the Sigma artifacts of the same profile validate (sigma check)
+#
+# The lane uses expected-verdict assertions, records verdicts as ::notice
+# annotations + step summaries, and never stays red (TDS §7).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "sbobs/**"
+      - "scenarios/agent-framework/telemetry/**"
+      - "scenarios/agent-framework/harness/**"
+      - ".github/workflows/runtime-detection.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # SHA-pinned toolchain (TDS §7/§8)
+  SBOB_REPO: DevelApp-ai/Software-Bill-of-Behavior
+  SBOB_PIN: 4bf2eb1d2413de388c10a0c7de38026e07e46fd7
+  # consumer workload profile (local registry namespace: slot 2 -> 1002xx)
+  SBOB_FILE: sbobs/workload/python-ci-runner.yaml
+  SBOB_REGISTRY: sbobs/registry.yaml
+  # disposable manager (hardened lab-validate pattern, M6 lane lesson:
+  # --ulimit nofile + SYS_RESOURCE or analysisd -t dies EPERM)
+  WAZUH_IMAGE: wazuh/wazuh-manager:4.14.6
+  WAZUH_CONTAINER: sbob-af-wazuh-manager
+  WAZUH_API: https://localhost:55000
+  SIGMA_CLI_VERSION: "4.0.0"
+  EXPECT_DRIFT_IDS: 100221,100231
+  EXPECT_DRIFT_ABSENT: 100211,100201,100222,100232
+  EXPECT_SUSTAINED_IDS: 100222,100232
+  EXPECT_SUSTAINED_ABSENT: 100212,100209
+
+jobs:
+  runtime-detection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout SBOB-Examples
+        uses: actions/checkout@v4
+
+      - name: Checkout the SHA-pinned SBoB toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SBOB_REPO }}
+          ref: ${{ env.SBOB_PIN }}
+          path: sbob-repo
+
+      - name: Node 22 (native type stripping, zero npm install)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: "Profile gate: validate the committed consumer SBoB and transpile it (wazuh + sigma)"
+        run: |
+          set -o pipefail
+          cd sbob-repo
+          node src/cli.ts validate --sbob "$GITHUB_WORKSPACE/$SBOB_FILE" 2>&1 | tee "$GITHUB_WORKSPACE/validate.log"
+          node src/cli.ts transpile --sbob "$GITHUB_WORKSPACE/$SBOB_FILE" \
+            --out "$GITHUB_WORKSPACE/dist/wazuh" \
+            --target linux \
+            --registry "$GITHUB_WORKSPACE/$SBOB_REGISTRY" --skip-signature-verify \
+            2>&1 | tee "$GITHUB_WORKSPACE/transpile-wazuh.log"
+          node src/cli.ts transpile --sbob "$GITHUB_WORKSPACE/$SBOB_FILE" \
+            --out "$GITHUB_WORKSPACE/dist/sigma" \
+            --target sigma \
+            --registry "$GITHUB_WORKSPACE/$SBOB_REGISTRY" --skip-signature-verify \
+            2>&1 | tee "$GITHUB_WORKSPACE/transpile-sigma.log"
+          cd "$GITHUB_WORKSPACE"
+          echo "--- wazuh bundle ---"; find dist/wazuh -type f | sort
+          echo "--- sigma bundle ---"; find dist/sigma -type f | sort
+          test -f dist/wazuh/wazuh/rules/sbob/100200_python-ci-runner_linux.xml \
+            || { echo "FAIL: transpiled rules fragment missing"; exit 1; }
+          ls dist/sigma/sigma/sbob/*.yml >/dev/null \
+            || { echo "FAIL: sigma artifacts missing"; exit 1; }
+          echo "bundle checksums:"; cat dist/wazuh/checksums.txt
+          echo "::notice title=profile-gate::consumer SBoB validated + transpiled (linux + sigma) from pin $SBOB_PIN"
+
+      - name: Start the disposable Wazuh manager (4.14.6)
+        run: |
+          docker pull "$WAZUH_IMAGE"
+          docker run -d --name "$WAZUH_CONTAINER" \
+            --ulimit nofile=458752:458752 \
+            --cap-add=SYS_RESOURCE \
+            -p 1514:1514 -p 1515:1515 -p 55000:55000 \
+            "$WAZUH_IMAGE"
+          for i in $(seq 1 96); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "$WAZUH_API" || true)
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "manager API up (HTTP $code)"; exit 0; fi
+            if [ $((i % 12)) -eq 0 ]; then echo "...still waiting for the API (HTTP $code)"; fi
+            sleep 5
+          done
+          echo "FAIL: manager API did not come up"
+          docker logs --tail 60 "$WAZUH_CONTAINER" || true
+          exit 1
+
+      - name: Install the bundle + declare the CDB lists in ossec.conf
+        run: |
+          sh sbob-repo/scripts/sync-manager.sh dist/wazuh --root staging
+          find staging -type f | sort
+          docker cp staging/rules/. "$WAZUH_CONTAINER:/var/ossec/etc/rules/"
+          docker cp staging/decoders/. "$WAZUH_CONTAINER:/var/ossec/etc/decoders/"
+          docker cp staging/lists/. "$WAZUH_CONTAINER:/var/ossec/etc/lists/"
+          docker cp "$WAZUH_CONTAINER:/var/ossec/etc/ossec.conf" ossec.conf
+          # wazuh never auto-loads CDB lists: every generated list MUST be
+          # declared in <ruleset> (the #28 lesson — an undeclared list makes
+          # the referencing rules silently never load)
+          : > sbob-lists.snippet
+          if [ -d staging/lists/sbob ]; then
+            (cd staging/lists && find sbob -type f | sort) | while read -r rel; do
+              printf '    <list>etc/lists/%s</list>\n' "$rel"
+            done >> sbob-lists.snippet
+          fi
+          if [ -s sbob-lists.snippet ]; then
+            awk '
+              BEGIN { while ((getline l < "sbob-lists.snippet") > 0) ins = ins l ORS }
+              !done && /<\/ruleset>/ { printf "%s", ins; done = 1 }
+              { print }
+            ' ossec.conf > ossec.conf.new
+            mv ossec.conf.new ossec.conf
+            echo "declared lists:" && grep "<list>etc/lists/sbob" ossec.conf
+          else
+            echo "FAIL: no CDB lists found in the bundle"; exit 1
+          fi
+          docker cp ossec.conf "$WAZUH_CONTAINER:/var/ossec/etc/ossec.conf"
+          docker exec "$WAZUH_CONTAINER" sh -c \
+            'chown wazuh:wazuh /var/ossec/etc/ossec.conf /var/ossec/etc/rules/sbob_* /var/ossec/etc/decoders/sbob_*; chown -R wazuh:wazuh /var/ossec/etc/lists/sbob'
+
+      - name: "Ruleset load gate: analysisd -t zero errors/warnings, then restart + API probe"
+        run: |
+          set -o pipefail
+          out=$(docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-analysisd -t 2>&1 || true)
+          if [ -n "$out" ]; then
+            echo "FAIL: analysisd -t was not silent (ruleset rejected):"
+            printf '%s\n' "$out" | head -30
+            echo "::error title=analysisd-t::ruleset rejected: $(printf '%s' "$out" | head -c 1200 | tr '\n' '~')"
+            exit 1
+          fi
+          echo "analysisd -t clean: no errors, no warnings"
+          docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control restart 2>&1 | tee restart.log \
+            || echo "wazuh-control restart rc=$? (the probe below is the gate)"
+          code=000
+          for i in $(seq 1 60); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "$WAZUH_API" || true)
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "manager API up after restart (HTTP $code)"; break; fi
+            sleep 5
+          done
+          if [ "$code" = "000" ] || [ -z "$code" ]; then
+            echo "FAIL: manager API did not come back after the bundle install"
+            exit 1
+          fi
+          docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control status 2>/dev/null \
+            | grep -E "^wazuh-analysisd is running" >/dev/null \
+            || { echo "FAIL: analysisd is NOT running (anchored grep: 'is running' line)"; exit 1; }
+          echo "analysisd running with the bundle loaded"
+          echo "::notice title=ruleset-load::bundle loads clean on $WAZUH_IMAGE (analysisd -t silent, analysisd running)"
+
+      - name: "Corpus gate: benign quiet, drift fires, sustained escalation (wazuh-logtest)"
+        run: |
+          set -o pipefail
+          docker exec "$WAZUH_CONTAINER" mkdir -p /tmp/sbob-af/harness /tmp/sbob-af/telemetry
+          docker cp scenarios/agent-framework/harness/logtest-gate.sh "$WAZUH_CONTAINER:/tmp/sbob-af/harness/"
+          docker cp scenarios/agent-framework/telemetry/. "$WAZUH_CONTAINER:/tmp/sbob-af/telemetry/"
+          docker exec "$WAZUH_CONTAINER" sh -c 'chmod +x /tmp/sbob-af/harness/logtest-gate.sh'
+          docker exec "$WAZUH_CONTAINER" \
+            bash -c 'PATH="/var/ossec/bin:$PATH" bash /tmp/sbob-af/harness/logtest-gate.sh /tmp/sbob-af/telemetry' \
+            2>&1 | tee corpus-gate.log
+          mkdir -p corpus-out
+          for f in benign drift sustained; do
+            docker cp "$WAZUH_CONTAINER:/tmp/sbob-af-$f.out" "corpus-out/$f.out" 2>/dev/null || true
+          done
+          echo "::notice title=corpus-gate::benign ZERO drift; drift fired $EXPECT_DRIFT_IDS; honest absences held ($EXPECT_DRIFT_ABSENT); sustained fired $EXPECT_SUSTAINED_IDS (absent: $EXPECT_SUSTAINED_ABSENT)"
+          {
+            echo "## runtime-detection corpus verdicts (scenario A M3)"
+            echo "- benign (clean 1.26.0 on the runner): ZERO drift/alerting rules fired"
+            echo "- drift (first interpreter start after the malicious install): \`$EXPECT_DRIFT_IDS\` fired; honest absences held: \`$EXPECT_DRIFT_ABSENT\`"
+            echo "- sustained (synthetic 8x repetition): \`$EXPECT_SUSTAINED_IDS\` fired; absent as designed: \`$EXPECT_SUSTAINED_ABSENT\`"
+            echo "- expected drift/absence sets asserted per run from the pinned evidence design"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Sigma gate: every generated Sigma rule validates (sigma check)"
+        run: |
+          set -o pipefail
+          python -m pip install --disable-pip-version-check "sigma-cli==$SIGMA_CLI_VERSION" 2>&1 | tee /tmp/sigma-install.log
+          sigma version 2>&1 | tee -a /tmp/sigma-install.log
+          n=0
+          for f in dist/sigma/sigma/sbob/*.yml; do
+            n=$((n+1))
+            echo "checking $f" | tee -a /tmp/sigma-install.log
+            sigma check "$f" 2>&1 | tee -a /tmp/sigma-install.log
+          done
+          echo "sigma check OK: $n rules" | tee -a /tmp/sigma-install.log
+          echo "::notice title=sigma-gate::sigma check passed on $n generated rules (sigma-cli $SIGMA_CLI_VERSION)"
+
+      - name: Verdict summary
+        if: always()
+        run: |
+          {
+            echo "## runtime-detection verdict (scenario A M3)"
+            echo "| gate | verdict |"
+            echo "|---|---|"
+            for f in validate.log transpile-wazuh.log transpile-sigma.log corpus-gate.log; do
+              if [ ! -f "$f" ]; then v="(not reached)";
+              elif grep -qE "^FAIL:|^ERROR:" "$f"; then v="**FAIL** (see $f artifact)";
+              else v="PASS"; fi
+              echo "| $f | $v |"
+            done
+            echo "SBoB toolchain pin: \`${SBOB_PIN}\` ; manager: \`${WAZUH_IMAGE}\`"
+            echo "Expected drift ids: \`${EXPECT_DRIFT_IDS}\` (absent: \`${EXPECT_DRIFT_ABSENT}\`); sustained: \`${EXPECT_SUSTAINED_IDS}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=lane-verdicts::expected-verdict assertions: see steps above + run artifacts"
+
+      - name: Failure diagnostics (step summary)
+        if: failure()
+        run: |
+          set +e
+          {
+            echo "## runtime-detection diagnostics"
+            echo '```'
+            echo "--- manager container ---"
+            docker ps -a 2>&1 | sed -n 1,10p
+            docker logs --tail 60 "$WAZUH_CONTAINER" 2>&1 || true
+            echo "--- ossec.log tail ---"
+            docker exec "$WAZUH_CONTAINER" sh -c 'tail -40 /var/ossec/logs/ossec.log' 2>&1 || true
+            echo "--- declared lists ---"
+            docker exec "$WAZUH_CONTAINER" sh -c 'grep -c "<list>etc/lists/sbob" /var/ossec/etc/ossec.conf' 2>&1 || true
+            echo "--- gate log tail ---"
+            tail -40 corpus-gate.log 2>/dev/null || true
+            echo "--- sigma gate log tail ---"
+            tail -20 /tmp/sigma-install.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          echo "::error title=fail-lines::$(grep -hE '^FAIL:|^ERROR:' validate.log transpile-wazuh.log transpile-sigma.log corpus-gate.log /tmp/sigma-install.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"
+
+      - name: Upload lane artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-detection-evidence
+          if-no-files-found: warn
+          path: |
+            validate.log
+            transpile-wazuh.log
+            transpile-sigma.log
+            restart.log
+            corpus-gate.log
+            corpus-out/*.out
+            ossec.conf
+            sbob-lists.snippet
+            staging/
+            dist/wazuh/checksums.txt
+            dist/wazuh/python-ci-runner.manifest.json
