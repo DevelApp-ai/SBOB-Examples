@@ -30,10 +30,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
     && rm -rf /var/lib/apt/lists/*
 
-# dedicated workload uid (appuser, uid 1000): node-side signature keys are
+# dedicated workload uid 1000 (the temurin base's existing `ubuntu` user —
+# useradd -u 1000 fails on the non-unique UID): node-side signature keys are
 # attributed to the workload by uid in the capture (scenario-B pattern)
-RUN useradd -u 1000 -m appuser \
-    && mkdir -p /app /var/lib/app-data /var/www/webapp \
+RUN mkdir -p /app /var/lib/app-data /var/www/webapp \
     && chown -R 1000:1000 /app /var/lib/app-data /var/www/webapp
 
 # the service + the in-JVM payload class (b4 reads /app/Payload.class through
