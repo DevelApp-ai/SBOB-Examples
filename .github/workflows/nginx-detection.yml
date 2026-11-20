@@ -314,7 +314,9 @@ jobs:
       # the escape gate runs against the host-only ruleset, swapped in here.
       - name: "Swap manager to the host-only ruleset for the escape gate"
         run: |
-          docker exec "$WAZUH_CONTAINER" rm -f /var/ossec/etc/rules/100400_nginx-worker_linux.xml
+          # sync-manager.sh flattens rules to sbob_<file> in the manager layout
+          docker exec "$WAZUH_CONTAINER" rm -f /var/ossec/etc/rules/sbob_100400_nginx-worker_linux.xml
+          docker exec "$WAZUH_CONTAINER" sh -c 'ls /var/ossec/etc/rules/sbob_*' || true
           docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control restart 2>&1 | tee restart2.log || true
           code=000
           for i in $(seq 1 60); do
