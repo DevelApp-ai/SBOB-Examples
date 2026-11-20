@@ -33,10 +33,13 @@ Three defenses, each a milestone with its own CI lane and committed evidence:
 | 2 | **Runtime detection** (Monitor / Audit) | `sbobctl transpile` (Wazuh audit rules, CDB allowlists, Sigma) | Drift alerts fire on the first `.pth`-triggered Python start: new startup-hook execution, `/proc/*/environ` reads, unknown external egress. |
 | 3 | **Enforcement** (Enforce) | `sbobctl enforce` (NetworkPolicy / AppArmor / seccomp) | The single HTTPS POST to the exfil endpoint fails closed. Clean 1.26.0 workloads are unaffected (no false positive). |
 
-Layer 3's committed evidence (`docs/agent-framework/enforce-evidence.md` +
-the `enforce-block.yml` run URL) lands with **issue #5 (PR #18, in
-progress)** — until it merges, the layer-3 row above is the claim under
-test, not yet evidenced. See [docs/incident-report.md](docs/incident-report.md).
+Layer 3 is evidenced (issue #5, PR #18): enforced 1.26.1/1.26.2 legs deny the
+exfil POST at the kernel level (REJECT counter hit) and the sink receives
+nothing; clean 1.26.0 is unaffected —
+[docs/agent-framework/enforce-evidence.md](docs/agent-framework/enforce-evidence.md),
+lane `enforce-block.yml`, run
+[44800715326](https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44800715326).
+Narrative: [docs/incident-report.md](docs/incident-report.md).
 
 ## What happened (summary)
 
@@ -94,7 +97,7 @@ The layer lanes run in CI on push/PR (watch them under
 | Scenario A reconstruction tests | `scenario-a-tests.yml` | sink receives exactly one POST per stealer run; zero non-loopback sockets |
 | Layer 1: supply-chain gate | `supply-chain-gate.yml` | Gates A/B/C verdicts, canary scores — [docs/supply-chain-evidence.md](docs/supply-chain-evidence.md) |
 | Layer 2: runtime detection | `runtime-detection.yml` | drift rules 100221/100231 (+100222) fire, benign silent — [docs/agent-framework/runtime-evidence.md](docs/agent-framework/runtime-evidence.md) |
-| Layer 3: enforcement | `enforce-block.yml` | **pending issue #5 / PR #18** — exfil POST fails closed, sink receives nothing |
+| Layer 3: enforcement | `enforce-block.yml` | exfil POST fails closed (0 new sink receipts, REJECT counter hit), clean 1.26.0 unaffected — [docs/agent-framework/enforce-evidence.md](docs/agent-framework/enforce-evidence.md) |
 | Scenario B: PHP2Shell detection | `php-detection.yml` | rules 100111/100121/100131/100163 fire on live post-exploit behaviors — [docs/php2shell/detection-evidence.md](docs/php2shell/detection-evidence.md) |
 
 The full incident narrative — real 2026-11-17 timeline side-by-side with the
@@ -116,8 +119,8 @@ upstream/corpus-1.26.0/  the REAL microsoft/agent-framework pytest corpus,
                          profile is generated from upstream's own tests
 sbobs/               committed, drift-gated SBoB profiles per version
 docs/                TDS, incident map, incident report, per-layer evidence docs
-.github/workflows/   supply-chain-gate / runtime-detection / php-detection lanes;
-                     enforce-block ships with issue #5 (PR #18, in progress)
+.github/workflows/   supply-chain-gate / runtime-detection / enforce-block /
+                     php-detection / php-enforce lanes
 ```
 
 ## Safety policy (read before touching scenarios/)

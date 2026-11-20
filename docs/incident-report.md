@@ -2,8 +2,8 @@
 
 SBOB-EXAMPLES DEMO WATERMARK — narrative + evidence report for milestone M5
 (issue #6). Every claim below cites a committed evidence document and a lane
-run URL. Where a layer's evidence is not yet committed (layer 3, issue #5 /
-PR #18, in progress), the row says so instead of claiming it.
+run URL. All three layers have committed evidence on main — layer 3 landed
+with issue #5 (PR #18).
 
 Sources for the real incident: Wiz, OpenSourceMalware, Aikido advisories
 (links in [TDS.md](TDS.md) §10). Indicators are defanged; the full IOC table
@@ -20,15 +20,14 @@ is [agent-framework/incident-map.md](agent-framework/incident-map.md).
 | Stealer ran on every Python start via `.pth`, harvested env + `/proc/*/environ` (up to 300) + up to 60-80 credential files + cloud metadata, exfiltrated in a single zlib+base64 HTTPS POST to `webhook[.]site`, silent failure, no retry | Loopback-only sink stands in for the exfil endpoint (TDS §4 hard rules); pytest corpus asserts the shape and zero non-loopback sockets (M1 lane `scenario-a-tests.yml`) |
 
 Demo milestones as delivered: M1 reconstruction (issue #2), M2 supply-chain
-gate (issue #3), M3 runtime detection (issue #4) — all merged. M4
-enforcement (issue #5) is in progress (PR #18); M5 is this report (issue #6).
+gate (issue #3), M3 runtime detection (issue #4), M4 enforcement (issue #5,
+PR #18) — all merged. M5 is this report (issue #6).
 Scenario B (PHP2Shell) runs on its own track: M6 detection replay merged
 (issue #10), M7 enforcement in anger open (issue #11).
 
 ## 2. What each layer would have happened when
 
-Three layers, three moments. Layer 3 is pending issue #5 — stated, not
-claimed.
+Three layers, three moments — all evidenced below.
 
 ### Layer 1 — supply-chain gate, at the dependency-update PR (before install)
 
@@ -72,14 +71,27 @@ and [44789707792](https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/4478
 
 ### Layer 3 — enforcement (Enforce), at the exfil POST
 
-**Pending issue #5 (PR #18, branch `m4-enforce-block`, in progress).** The
-claim to be evidenced there: with egress limited to the profile's declared
-peers (loopback sink deliberately not allowlisted), the single HTTPS POST to
-the exfil endpoint fails closed and the sink receives nothing, while the
-clean 1.26.0 workload passes with no false positive, under the
-Monitor→Audit→Enforce state machine. This report does not cite that
-evidence yet; it will be added from `docs/agent-framework/enforce-evidence.md`
-+ the `enforce-block.yml` run URL when #5 merges.
+With egress allowlist-enforced to the profile's declared peers (cluster-dns
+UDP 53 + pypi mirror TCP 443; the loopback sink deliberately NOT
+allowlisted), the hijack's damage step fails closed: on the enforced
+1.26.1 / 1.26.2 legs the exfil POST is attempted and denied at the kernel
+level (REJECT counter +1) and the sink receives **0 new receipts**, while
+the clean 1.26.0 workload is untouched (0 receipts, REJECT delta 0 — no
+false positive). The lane proves the NetworkPolicy's deny-all-undeclared
+semantics live in a disposable container (uid-scoped iptables allowlist,
+workload uid 1500) across 8 pinned legs; the Monitor→Audit→Enforce transition
+is committed in `sbobs/enforce-state.yaml` (only egress advances to enforce,
+after the M3 clean-window audit record), and the drift-gated enforce bundles
+regenerate byte-identical from the pinned toolchain on every lane run.
+AppArmor/seccomp variants are committed as documented-with-artifacts, with
+their honest limitations recorded (complaint-mode profile, SCMP_ACT_LOG
+signature surface) rather than papered over.
+
+Evidence: [agent-framework/enforce-evidence.md](agent-framework/enforce-evidence.md)
+(8-leg verdict table, state file, honest limitations 1-4), lane
+`.github/workflows/enforce-block.yml`, run
+[44800715326](https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44800715326)
+(all 8 legs PASS).
 
 ## 3. Honest limitations (unsugarcoated)
 
@@ -119,5 +131,5 @@ From TDS §9 and the committed layer evidence:
 | M1 reconstruction + IOC map | [agent-framework/incident-map.md](agent-framework/incident-map.md) | `scenario-a-tests.yml` | CI green on main |
 | M2 supply-chain gate | [supply-chain-evidence.md](supply-chain-evidence.md) | `supply-chain-gate.yml` | [44657815995](https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44657815995) |
 | M3 runtime detection | [agent-framework/runtime-evidence.md](agent-framework/runtime-evidence.md) | `runtime-detection.yml` | [44789125134](https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44789125134), [44789707792](https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44789707792) |
-| M4 enforcement | `docs/agent-framework/enforce-evidence.md` — **pending issue #5 / PR #18** | `enforce-block.yml` | pending |
+| M4 enforcement | [agent-framework/enforce-evidence.md](agent-framework/enforce-evidence.md) | `enforce-block.yml` | [44800715326](https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44800715326) |
 | M6 PHP2Shell detection | [php2shell/detection-evidence.md](php2shell/detection-evidence.md) | `php-detection.yml` | [44591553822](https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44591553822) |
