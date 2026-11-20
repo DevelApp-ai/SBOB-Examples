@@ -64,12 +64,24 @@ declared upstream or loopback (parity checker + TDS §4).
 
 ## Run evidence
 
-<!-- STAMP: record the first fully green nginx-detection run here on merge,
-     with the run URL, in the same pattern as the other evidence docs.
-     (local pre-push proof: both workloads transpile at pin 4bf2eb1d —
-     nginx-worker slot 4 rules 100411/100421/100431/100401/100460 + sustained
-     children; node-host slot 5 rules 100511/100521/100501 + children;
-     harness scripts syntax-checked) -->
+<!-- STAMP: recorded from the lane's fully green run
+     https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44834477759
+     (nginx-detection):
+| gate | verdict | detail |
+|------|---------|--------|
+| workload capture + parity/safety | PASS | b1/b5 side effects present, benign drift-free, loopback-only sockets |
+| corpus-benign | PASS | nginx-benign.audit ×8 one session: zero alerts |
+| corpus-drift (worker) | PASS | 100411 + 100421 + 100431 + overlay 100401 + host module-load 100460 all fired; sustained 100412/100422/100432 fired on the ×8 session replay |
+| live gates | PASS | live drift window fired 100460 LIVE — the sctp module autoloaded on this runner (first SCTP socket); exe-scoped worker legs correctly absent (delta-7 analog); benign live silent |
+| corpus-escape (host, host-only ruleset) | PASS | 100511 + 100521 + overlay 100501 fired; sustained 100512/100522 fired |
+
+Recorded lane finding: with both bundles installed, the opens base rules match
+on record type (not key), so the lowest-slot open rule shadowed the host one —
+the escape gate therefore runs against the host-only ruleset (production
+shape: one workload's rules per agent group). Lane iterations recorded:
+44833195857 / 44833913061 (that shadowing, then the flattened sbob_* rule
+filename in the swap). Local pre-push proof: both workloads transpile at pin
+4bf2eb1d with the expected rule ids; harness scripts syntax-checked. -->
 
 Lane artifacts on every run: `nginx2root-telemetry` (transpile logs, build
 log, workload run log, escape-sim log, parity check, captured windows, gate
