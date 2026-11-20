@@ -49,6 +49,12 @@ echo "[enforce]    allowlist = 10.96.100.10/32 TCP 11211 (declared memcache peer
 command -v iptables >/dev/null 2>&1 || { echo "FAIL: iptables missing from the workload image (M7 lane requires it)"; exit 1; }
 iptables -N SBOB-EGRESS-ENFORCE 2>/dev/null || true
 iptables -F SBOB-EGRESS-ENFORCE
+# k8s NetworkPolicies are stateful: return traffic of established connections
+# is allowed. The worker's fastcgi RESPONSES to the (root) client are uid-33
+# OUTPUT packets, so the translation must allow ESTABLISHED,RELATED first —
+# otherwise the worker's own replies are REJECTed and every request hangs
+# (observed on run 44818792898: 87 REJECT hits, both flows timed out).
+iptables -A SBOB-EGRESS-ENFORCE -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A SBOB-EGRESS-ENFORCE -d 10.96.100.10/32 -p tcp --dport 11211 -j ACCEPT
 iptables -A SBOB-EGRESS-ENFORCE -j REJECT --reject-with icmp-port-unreachable
 iptables -C OUTPUT -m owner --uid-owner 33 -j SBOB-EGRESS-ENFORCE 2>/dev/null \
