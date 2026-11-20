@@ -100,12 +100,26 @@ sigma gate (sigma-cli 4.0.0, `sigma check` on every generated rule). All
 verdicts surfaced as `::notice` annotations + step summary; lane never
 stays red (TDS §7).
 
-<!-- STAMP: first green run (record on merge, with run URL):
-- run URL:
-- corpus gate verdict (benign / drift / sustained rows):
-- analysisd -t gate:
-- sigma gate (n rules, sigma-cli version):
-- artifacts uploaded:
+<!-- STAMP: recorded from the lane's actual green runs:
+- verdicts recorded on run 44789125134 (public ::notice annotations);
+  hardened-ruleset-gate re-proof green on run 44789707792.
+- local pre-push replica proof (wazuh-manager 4.14.6 deb install, analysisd -t
+  clean): benign fired only level-0 base chains (100200/100220/100230);
+  drift fired 100221 x7 (2 environ reads + 4 credential files + 1 runner
+  token) and 100231 x1 with every asserted honesty absence quiet;
+  sustained fired 100222 + 100232 (winner-context display, exactly the
+  issue-42 correlation semantics).
+- CI corpus gate (green): benign ZERO drift; drift 100221,100231 fired;
+  honest absences held 100211,100201,100222,100232; sustained 100222,100232
+  fired, 100212,100209 absent.
+- analysisd -t gate (green): silent, zero errors/warnings;
+  analysisd running (anchored 'is running' grep, now a 90s retry loop after
+  one observed restart race on the first lane run).
+- sigma gate (green): sigma check passed on 6 generated rules
+  (sigma-cli 4.0.0).
+- artifacts uploaded: runtime-detection-evidence (bundle checksums, corpus
+  gate log + replay outputs, ossec.conf with declared CDB lists, transpile
+  logs).
 -->
 
 ## Findings — what scenario A exposes at this layer (the gap map)
