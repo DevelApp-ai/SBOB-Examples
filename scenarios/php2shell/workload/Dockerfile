@@ -23,12 +23,15 @@ FROM ${PHP_IMAGE}
 # socat         : stand-in listeners (declared memcache peer + loopback C2)
 # libfcgi-bin   : cgi-fcgi, the fastcgi client stand-in for the declared nginx ingress
 # iproute2      : `ip addr add` for the loopback-local declared-peer alias
+# iptables      : the M7 enforce lane applies the uid-scoped egress allowlist
+#                 (NET_ADMIN is granted at docker run; same as the M4 lane image)
 # libffi-dev    : build dep for the PHP FFI extension (memfd_create behavior)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       auditd \
       socat \
       libfcgi-bin \
       iproute2 \
+      iptables \
       libffi-dev \
       procps \
     && rm -rf /var/lib/apt/lists/*
@@ -57,7 +60,9 @@ RUN mkdir -p /var/lib/php/sessions \
 
 # Harness orchestration (run via docker exec once the CI lane has loaded the
 # SBoB-generated audit fragment; see scenarios/php2shell/harness/).
-COPY harness/run-behaviors.sh harness/capture-window.sh /opt/harness/
+# run-enforce.sh is the M7 (issue #11) in-container half of the php-enforce
+# lane: it applies the enforce artifacts' semantics and asserts the blocks.
+COPY harness/run-behaviors.sh harness/capture-window.sh harness/run-enforce.sh /opt/harness/
 RUN chmod +x /opt/harness/*.sh
 
 COPY workload/entrypoint.sh /opt/entrypoint.sh

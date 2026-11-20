@@ -1,0 +1,49 @@
+# sbobctl Phase-3 rollout state — workload php-fpm (scenario B, M7 / issue #11).
+#
+# Monitor -> Audit -> Enforce ladder, one deliberate rung at a time:
+#
+#   Monitor   the profile ships detection only (M1-M2 pattern).
+#   Audit     M6 (issue #10, lane php-detection.yml, first green run
+#             44591553822): the benign workload window replayed silent
+#             (zero drift alerts) on the transpiled bundle — the
+#             incident-free audit window. Recorded corpus proved drift
+#             fires 100111/100121/100131/100163; the live capture proved
+#             the node-scoped memfd leg (100163) and recorded the delta-7
+#             exe-scoping finding honestly (docs/php2shell/detection-evidence.md).
+#   Enforce   M7 (this file): every section graduates to enforce on the
+#             strength of the M6 audit record below (incidents: 0).
+#
+# Ladder validity is enforced by the pinned sbobctl on every lane run:
+# ERR_ENFORCE_LADDER when a section skips a rung, ERR_ENFORCE_NOT_AUDITED
+# when a section enforces without an incident-free audit record.
+workload: php-fpm
+
+# Global rung: enforce. Per-section overrides below are all at the same
+# rung; the ladder rule (section at most one rung above the default) holds.
+state: enforce
+
+sections:
+  execs: enforce    # AppArmor exec allowlist: /usr/local/sbin/php-fpm ixr only
+  opens: enforce    # AppArmor opens rules: web root (read), sessions (write), resolv.conf (read)
+  egress: enforce   # NetworkPolicy: egress = declared memcache peer only
+  ingress: enforce  # NetworkPolicy: ingress = declared nginx frontend CIDR only
+
+# TDS 14.6 audit attestation: the M6 clean window (benign silent, run
+# 44591553822) is the incident-free evidence each section graduated on.
+auditRecords:
+  execs:
+    started: "2026-11-19"
+    windowDays: 1
+    incidents: 0
+  opens:
+    started: "2026-11-19"
+    windowDays: 1
+    incidents: 0
+  egress:
+    started: "2026-11-19"
+    windowDays: 1
+    incidents: 0
+  ingress:
+    started: "2026-11-19"
+    windowDays: 1
+    incidents: 0

@@ -1,0 +1,246 @@
+name: php-enforce
+
+# Scenario B (PHP2Shell) M7 lane: layer-3 enforcement IN ANGER (issue #11).
+#
+# Delivers the live-behavior Stage-3 evidence the SBoB repo lists as pending:
+# the committed sbobctl enforce artifacts for the php-fpm workload
+# (sbobs/enforce-php/{linux,k8s-node}, generated from the SHA-pinned SBoB
+# repo's sbobs/php-fpm.yaml + sbobs/enforce-state-php-fpm.yaml) are applied
+# LIVE to the disposable php-fpm workload container and every post-exploit
+# behavior is asserted BLOCKED:
+#
+#   1. drift gate: the committed bundles regenerate byte-identical from the
+#      pinned toolchain + state file (the enforce IS the drift gate; sbobctl
+#      refuses ladder skips — ERR_ENFORCE_LADDER — and enforcement without an
+#      incident-free audit record — ERR_ENFORCE_NOT_AUDITED; the M6 benign
+#      window, run 44591553822, is the attested audit record).
+#   2. enforcement demo (artifact semantics translated live, the M4 pattern):
+#      - seccomp  : the generated OCI profile (SCMP_ACT_ERRNO/EPERM on the
+#                   signature surface incl. memfd_create) applied via docker
+#                   --security-opt seccomp=  -> behavior 4 blocked
+#      - egress   : the generated NetworkPolicy (egress = 10.96.100.10/32
+#                   TCP 11211 only) translated to a uid-scoped (uid 33)
+#                   iptables allowlist applied inside the NET_ADMIN
+#                   container -> behavior 3 fails closed (REJECT counter)
+#      - execs    : the generated AppArmor exec allowlist (php-fpm ixr only)
+#                   translated by masking /bin/sh at container start
+#                   -> behavior 1 denied
+#      - opens    : the generated AppArmor opens rules translated by a
+#                   read-only rootfs with a tmpfs ONLY at the declared write
+#                   path /var/lib/php/sessions -> behavior 2 denied
+#      The AppArmor/NetworkPolicy artifacts of record stay the committed
+#      generated files; the live translations are documented in
+#      docs/php2shell/enforce-evidence.md (the same honesty pattern as M4's
+#      NetworkPolicy -> iptables translation).
+#
+# Expected-verdict assertions (TDS §7: pinned in env, recorded as ::notice +
+# step summaries, never forced):
+#   benign under enforcement: UNAFFECTED (declared read/session-write/resolver/
+#     memcache-egress all work — no false positive)
+#   b1 /bin/sh spawn: denied (shell masked, no /var/tmp/.pwned side effect)
+#   b2 webshell drop: denied (read-only rootfs, no /var/tmp/.php2shell.php)
+#   b3 C2 stand-in connect: fails closed + iptables REJECT counter +1
+#   b4 memfd_create: EPERM (behaviors.php reports failure; uid-33 probe EPERM)
+#   enforcement telemetry: sbob-enforce.log carries one entry per block
+#     (ingested by the generated wazuh rule 100211, json localfile)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "sbobs/**"
+      - "scenarios/php2shell/**"
+      - ".github/workflows/php-enforce.yml"
+      - "docs/php2shell/enforce-evidence.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # SHA-pinned toolchain (TDS §7/§8)
+  SBOB_REPO: DevelApp-ai/Software-Bill-of-Behavior
+  SBOB_PIN: 4bf2eb1d2413de388c10a0c7de38026e07e46fd7
+  # php-fpm contract (from the pinned SBoB repo) + this repo's rollout state
+  SBOB_FILE: sbob-repo/sbobs/php-fpm.yaml
+  SBOB_REGISTRY: sbob-repo/docs/sbob-registry.yaml
+  ENFORCE_STATE: sbobs/enforce-state-php-fpm.yaml
+  ENFORCE_BUNDLES: sbobs/enforce-php
+  # generated artifacts used live by the demo
+  SECCOMP_PROFILE: sbobs/enforce-php/k8s-node/enforcement/sbob/php-fpm/seccomp/php-fpm.json
+  NETWORKPOLICY: sbobs/enforce-php/k8s-node/enforcement/sbob/php-fpm/networkpolicy/php-fpm.yaml
+  # demo container
+  ENFORCE_IMAGE: sbob-php2shell:ci
+  WORKLOAD_CONTAINER: sbob-php-enforce
+  # pinned expected verdicts
+  PHP_EXPECT_BENIGN_MEMCACHE: "1"
+  PHP_EXPECT_B1_PWNED_ABSENT: "1"
+  PHP_EXPECT_B2_WEBSHELL_ABSENT: "1"
+  PHP_EXPECT_B3_REJECT_DELTA_GTE: "1"
+  PHP_EXPECT_B4_EPERM: "1"
+  PHP_EXPECT_ENFORCE_LOG_GTE: "4"
+
+jobs:
+  php-enforce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout SBOB-Examples
+        uses: actions/checkout@v4
+
+      - name: Checkout the SHA-pinned SBoB toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SBOB_REPO }}
+          ref: ${{ env.SBOB_PIN }}
+          path: sbob-repo
+
+      - name: Node 22 (native type stripping, zero npm install)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: "Drift gate: regenerate the committed enforce bundles and diff (linux + k8s-node)"
+        run: |
+          set -o pipefail
+          cd sbob-repo
+          for target in linux k8s-node; do
+            echo "--- regenerate target $target ---"
+            node src/cli.ts enforce --sbob "$GITHUB_WORKSPACE/$SBOB_FILE" \
+              --registry "$GITHUB_WORKSPACE/$SBOB_REGISTRY" \
+              --state "$GITHUB_WORKSPACE/$ENFORCE_STATE" \
+              --out "$GITHUB_WORKSPACE/dist/enforce-php-$target" \
+              --target "$target" --skip-signature-verify \
+              2>&1 | tee "$GITHUB_WORKSPACE/enforce-php-$target.log"
+          done
+          cd "$GITHUB_WORKSPACE"
+          rc=0
+          for target in linux k8s-node; do
+            echo "--- drift check: dist/enforce-php-$target vs $ENFORCE_BUNDLES/$target ---"
+            if ! diff -r "dist/enforce-php-$target" "$ENFORCE_BUNDLES/$target" > "drift-php-$target.diff" 2>&1; then
+              rc=1
+              cat "drift-php-$target.diff"
+              echo "::error title=php-enforce-drift::$ENFORCE_BUNDLES/$target is out of sync with the pinned toolchain + state file (see drift-php-$target.diff)"
+            fi
+            test -f "$ENFORCE_BUNDLES/$target/php-fpm-enforce.manifest.json" \
+              || { echo "::error title=php-enforce-drift::manifest for $target missing"; rc=1; }
+          done
+          cat drift-php-linux.diff drift-php-k8s-node.diff
+          echo "committed enforce bundles match the pinned generation (targets: linux, k8s-node)"
+          echo "state file: $ENFORCE_STATE (all sections enforce; audit records cite the M6 clean window)"
+          grep -n "state: enforce" "$ENFORCE_STATE"
+          echo "networkpolicy mode annotation: $(grep 'mode:' "$NETWORKPOLICY")"
+          grep -q '"action": "SCMP_ACT_ERRNO"' "$SECCOMP_PROFILE" \
+            || { echo "::error title=php-enforce-drift::seccomp profile is not in ERRNO (enforce) mode"; rc=1; }
+          echo "::notice title=php-enforce-drift::$ENFORCE_BUNDLES/{linux,k8s-node} regenerate byte-identical from pin $SBOB_PIN + $ENFORCE_STATE; NetworkPolicy mode=enforce; seccomp SCMP_ACT_ERRNO"
+          exit $rc
+
+      - name: Build the php-fpm workload image
+        run: |
+          set -o pipefail
+          docker build \
+            -f scenarios/php2shell/workload/Dockerfile \
+            -t "$ENFORCE_IMAGE" \
+            scenarios/php2shell 2>&1 | tee docker-build.log
+
+      - name: "Start the enforcing workload container (seccomp EPERM + read-only rootfs + masked /bin/sh + NET_ADMIN)"
+        run: |
+          set -o pipefail
+          docker run --rm -d --name "$WORKLOAD_CONTAINER" \
+            --cap-add=NET_ADMIN \
+            --read-only \
+            --tmpfs /run \
+            --tmpfs /tmp \
+            --tmpfs /var/lib/php/sessions:rw,uid=33,gid=33,mode=0770 \
+            --tmpfs /opt/enforce \
+            --security-opt "seccomp=$GITHUB_WORKSPACE/$SECCOMP_PROFILE" \
+            -v /dev/null:/bin/sh \
+            "$ENFORCE_IMAGE"
+          for i in $(seq 1 60); do
+            if docker exec "$WORKLOAD_CONTAINER" \
+                 bash -c '(exec 3<>/dev/tcp/127.0.0.1/9000) 2>/dev/null' 2>/dev/null; then
+              echo "enforcing workload ready (php-fpm on 9000)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "FAIL: enforcing workload container did not become ready"
+          docker logs "$WORKLOAD_CONTAINER" 2>&1 | tail -40 || true
+          exit 1
+
+      - name: "Run the enforcement demo (benign + 4 post-exploit behaviors, asserted blocks)"
+        run: |
+          set -o pipefail
+          docker exec -e ENFORCE_OUT=/opt/enforce "$WORKLOAD_CONTAINER" \
+            bash /opt/harness/run-enforce.sh 2>&1 | tee php-enforce-demo.log
+          mkdir -p enforce-run
+          # read via docker exec cat: docker cp path resolution over a tmpfs
+          # mount proved unreliable (run 44819834236: file visible in-container,
+          # cp reported not found)
+          docker exec "$WORKLOAD_CONTAINER" cat /opt/enforce/verdicts.json > enforce-run/verdicts.json \
+            || { echo "::error title=php-enforce::verdicts.json not readable in container"; exit 1; }
+          docker exec "$WORKLOAD_CONTAINER" cat /opt/enforce/sbob-enforce.log > enforce-run/sbob-enforce.log 2>/dev/null \
+            || touch enforce-run/sbob-enforce.log
+          grep -q "^M7-VERDICT overall=PASS" php-enforce-demo.log \
+            || { echo "::error title=php-enforce::overall verdict is not PASS (see php-enforce-demo.log + enforce-run/verdicts.json)"; exit 1; }
+          {
+            echo "## php-enforce verdicts (scenario B M7)"
+            python3 -c 'import json; v=json.load(open("enforce-run/verdicts.json")); print("| leg | verdict | detail |"); print("|---|---|---|"); [print("| %s | %s | %s |" % (l["leg"], "PASS" if l["passed"] else "**FAIL**", l["detail"])) for l in v["legs"]]; print("overall: **%s**" % v["overall"])'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=php-enforce::all blocks asserted PASS: b1 shell exec denied, b2 webshell write denied, b3 C2 connect fails closed (REJECT hit), b4 memfd_create EPERM; benign unaffected; sbob-enforce.log telemetry recorded"
+          docker stop "$WORKLOAD_CONTAINER" 2>/dev/null || true
+
+      - name: Verdict summary
+        if: always()
+        run: |
+          {
+            echo "## php-enforce lane (scenario B M7)"
+            echo "| gate | verdict |"
+            echo "|---|---|---|"
+            for f in enforce-php-linux.log enforce-php-k8s-node.log drift-php-linux.diff drift-php-k8s-node.diff docker-build.log php-enforce-demo.log; do
+              if [ ! -f "$f" ]; then v="(not reached)";
+              elif grep -qE "^FAIL:|^ERROR:|^::error" "$f"; then v="**FAIL** (see $f)";
+              else v="PASS"; fi
+              echo "| $f | $v |"
+            done
+            echo "SBoB toolchain pin: \`${SBOB_PIN}\` ; state: \`${ENFORCE_STATE}\`"
+            echo "seccomp (live): \`$SECCOMP_PROFILE\` ; networkpolicy artifact: \`$NETWORKPOLICY\`"
+          } >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Failure diagnostics (step summary)
+        if: failure()
+        run: |
+          set +e
+          {
+            echo "## php-enforce diagnostics"
+            echo '```'
+            docker ps -a 2>&1 | sed -n 1,10p
+            docker logs --tail 60 "$WORKLOAD_CONTAINER" 2>&1 || true
+            echo "--- demo log tail ---"
+            tail -60 php-enforce-demo.log 2>/dev/null
+            echo "--- verdicts ---"
+            cat enforce-run/verdicts.json 2>/dev/null
+            echo "--- enforce log ---"
+            cat enforce-run/sbob-enforce.log 2>/dev/null
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          echo "::error title=fail-lines::$(grep -hE '^FAIL:|^ERROR:|^::error|M7-VERDICT overall=FAIL' php-enforce-demo.log enforce-php-linux.log enforce-php-k8s-node.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"
+
+      - name: Upload lane artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-enforce-evidence
+          if-no-files-found: warn
+          path: |
+            enforce-php-linux.log
+            enforce-php-k8s-node.log
+            drift-php-linux.diff
+            drift-php-k8s-node.diff
+            docker-build.log
+            php-enforce-demo.log
+            enforce-run/verdicts.json
+            enforce-run/sbob-enforce.log
+            dist/enforce-php-linux/php-fpm-enforce.manifest.json
+            dist/enforce-php-k8s-node/php-fpm-enforce.manifest.json

@@ -1,0 +1,30 @@
+# sbobctl generated NetworkPolicy — workload: php-fpm (TDS 14.4, M7)
+# states: egress=enforce ingress=enforce
+# ENFORCE: apply as a live policy — undeclared traffic is blocked
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sbob-php-fpm
+  namespace: web-tier
+  annotations:
+    sbob.k8sstormcenter.io/mode: "enforce"
+    sbob.k8sstormcenter.io/workload: "php-fpm"
+spec:
+  podSelector:
+    matchLabels:
+      sbob.k8sstormcenter.io/workload: php-fpm
+  policyTypes: [Egress, Ingress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.96.100.10/32
+      ports:
+        - protocol: TCP
+          port: 11211
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.244.0.0/16
+      ports:
+        - protocol: TCP
+          port: 9000

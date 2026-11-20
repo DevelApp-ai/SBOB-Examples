@@ -1,0 +1,26 @@
+<!-- sbobctl generated active responses — workload: php-fpm (TDS 14.1, M7)
+     state file default: enforce; disabled flags flip per-section (enforce only) -->
+<active-response>
+  <!-- section execs: enforce state — ACTIVE (kill-switch: flip this to yes without regenerating) -->
+  <command>sbob-php-fpm-process-kill</command>
+  <location>local</location>
+  <rules_id>100111</rules_id>
+  <timeout>60</timeout>
+  <disabled>no</disabled>
+</active-response>
+<active-response>
+  <!-- section egress: enforce state — ACTIVE (kill-switch: flip this to yes without regenerating) -->
+  <command>firewall-drop</command>
+  <location>local</location>
+  <rules_id>100131</rules_id>
+  <timeout>60</timeout>
+  <disabled>no</disabled>
+</active-response>
+<active-response>
+  <!-- section ingress: enforce state — ACTIVE (kill-switch: flip this to yes without regenerating) -->
+  <command>firewall-drop</command>
+  <location>local</location>
+  <rules_id>100141</rules_id>
+  <timeout>60</timeout>
+  <disabled>no</disabled>
+</active-response>

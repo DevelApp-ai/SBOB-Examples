@@ -1,0 +1,59 @@
+{
+  "workload": "php-fpm",
+  "namespace": "web-tier",
+  "sbobVersion": "0.0.4",
+  "imageID": "docker.io/library/php@sha256:a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "target": "linux",
+  "state": {
+    "default": "enforce",
+    "sections": {
+      "execs": "enforce",
+      "opens": "enforce",
+      "egress": "enforce",
+      "ingress": "enforce"
+    },
+    "enforcing": [
+      "execs",
+      "opens",
+      "egress",
+      "ingress"
+    ]
+  },
+  "auditRecords": {
+    "execs": {
+      "started": "2026-11-19",
+      "windowDays": 1,
+      "incidents": 0
+    },
+    "opens": {
+      "started": "2026-11-19",
+      "windowDays": 1,
+      "incidents": 0
+    },
+    "egress": {
+      "started": "2026-11-19",
+      "windowDays": 1,
+      "incidents": 0
+    },
+    "ingress": {
+      "started": "2026-11-19",
+      "windowDays": 1,
+      "incidents": 0
+    }
+  },
+  "artifacts": [
+    "wazuh/agent-conf/sbob/php-fpm-ar.xml",
+    "wazuh/agent-conf/sbob/php-fpm-enforce-localfile.xml",
+    "wazuh/rules/sbob/100100_php-fpm_enforce.xml",
+    "wazuh/manager/sbob/php-fpm-enforce.md",
+    "wazuh/active-response/bin/sbob-php-fpm-process-kill.sh",
+    "enforcement/sbob/php-fpm/systemd/php-fpm-seccomp.conf",
+    "enforcement/sbob/php-fpm/apparmor/php-fpm.profile"
+  ],
+  "notes": [
+    "active responses: disabled by default; enabled per section in enforce state only (TDS 14.6)",
+    "seccomp (systemd): enforce SystemCallFilter deny-list drop-in",
+    "apparmor: execs=enforce opens=enforce — enforce (blocking)"
+  ],
+  "labValidation": "pending"
+}
