@@ -227,10 +227,12 @@ jobs:
             --old ../work/baseline-1.26.0.yaml --new ../work/candidate-1.26.1.yaml \
             --report ../work/report-1.26.1.json --fail-on none) 2>&1 | tee work/diff-1.26.1.md
           python3 - <<'PY'
-          import json
+          import json, os
           r = json.load(open("work/report-1.26.1.json"))
           print("[gate-b] B1 verdict:", r.get("verdict"), "score:", r.get("score"))
           open("work/b1-verdict.txt", "w").write(str(r.get("verdict")))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write(f"Gate B: B1 (1.26.1) verdict {r.get('verdict')}, score {r.get('score')}\n")
           PY
 
       - name: 'B2: 1.26.2 — generate, convert, diff, record verdict'
@@ -247,10 +249,12 @@ jobs:
             --old ../work/baseline-1.26.0.yaml --new ../work/candidate-1.26.2.yaml \
             --report ../work/report-1.26.2.json --fail-on none) 2>&1 | tee work/diff-1.26.2.md
           python3 - <<'PY'
-          import json
+          import json, os
           r = json.load(open("work/report-1.26.2.json"))
           print("[gate-b] B2 verdict:", r.get("verdict"), "score:", r.get("score"))
           open("work/b2-verdict.txt", "w").write(str(r.get("verdict")))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write(f"Gate B: B2 (1.26.2) verdict {r.get('verdict')}, score {r.get('score')}\n")
           PY
 
       - name: Assert recorded Gate B verdicts (pinned after first honest run)
@@ -363,10 +367,12 @@ jobs:
             --new ../work-evidence/profile-clean2/af-canary.candidate.yaml \
             --report ../work-evidence/control-report.json --fail-on none) | tee work-evidence/control-diff.md
           python3 - <<'PY'
-          import json
+          import json, os
           r = json.load(open("work-evidence/control-report.json"))
           assert r.get("score") == 0, f"control scored {r.get('score')}: {r}"
           print("[gate-c] CONTROL PASS: clean canary run-to-run delta is 0 (verdict", r.get("verdict"), ")")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write(f"Gate C: control (clean vs clean) delta 0, verdict {r.get('verdict')} — observer pipeline deterministic\n")
           PY
 
       - name: 'C1: 1.26.1 canary — profile, diff vs baseline, record verdict'
@@ -393,10 +399,12 @@ jobs:
             --new ../work-evidence/profile-mal1/af-canary.candidate.yaml \
             --report ../work-evidence/mal1-report.json --fail-on none) | tee work-evidence/diff-mal1.md
           python3 - <<'PY'
-          import json
+          import json, os
           r = json.load(open("work-evidence/mal1-report.json"))
           print("[gate-c] C1 1.26.1 verdict:", r.get("verdict"), "score:", r.get("score"))
           open("work-evidence/c1-verdict.txt", "w").write(str(r.get("verdict")))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write(f"Gate C: C1 (1.26.1 canary) verdict {r.get('verdict')}, score {r.get('score')}\n")
           PY
 
       - name: 'C2: 1.26.2 canary — profile, diff vs baseline, record verdict'
@@ -423,10 +431,12 @@ jobs:
             --new ../work-evidence/profile-mal2/af-canary.candidate.yaml \
             --report ../work-evidence/mal2-report.json --fail-on none) | tee work-evidence/diff-mal2.md
           python3 - <<'PY'
-          import json
+          import json, os
           r = json.load(open("work-evidence/mal2-report.json"))
           print("[gate-c] C2 1.26.2 verdict:", r.get("verdict"), "score:", r.get("score"))
           open("work-evidence/c2-verdict.txt", "w").write(str(r.get("verdict")))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write(f"Gate C: C2 (1.26.2 canary) verdict {r.get('verdict')}, score {r.get('score')}\n")
           PY
 
       - name: 'Canary honesty floor — the diffs must SCORE'
