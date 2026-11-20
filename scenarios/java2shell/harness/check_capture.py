@@ -54,7 +54,7 @@ SIGNATURE_KEYS = (
     "sbob-namespace-change",
     "sbob-process-tracing",
 )
-DECLARED_EXE = "/usr/local/openjdk-17/bin/java"
+DECLARED_EXE = "/opt/java/openjdk/bin/java"
 WORKLOAD_UID = "1000"
 DRIFT_SIG_RE = re.compile(r'exe="/bin/sh"|/var/www/webapp/|/var/tmp/|saddr=0200115D7F000001')
 

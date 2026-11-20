@@ -64,7 +64,7 @@ is stated, not hidden.
 
 1. **Containerized workload + node-side observer (delta-7 analog):** the
    generated audit fragment is exe-scoped (Mode A) to
-   `/usr/local/openjdk-17/bin/java`; a node-side auditd resolves the
+   `/opt/java/openjdk/bin/java`; a node-side auditd resolves the
    container binary through the overlay2 path, so exe-scoped keys do not tag
    live. Rule firing is proven on the recorded harness corpus; live behavior
    is proven by side effects. On a self-hosted node with the in-container

@@ -7,9 +7,9 @@
 # in the recorded-corpus record shape:
 #   - SYSCALL records with workload-scoped keys
 #     (sbob-exec-java-service / sbob-open-java-service / sbob-connect-java-service): the
-#     generated audit fragment is exe-scoped to /usr/local/openjdk-17/bin/java and
+#     generated audit fragment is exe-scoped to /opt/java/openjdk/bin/java and
 #     the kernel resolves a task's exe path against the TASK ROOT (an
-#     exe="/usr/local/openjdk-17/bin/java" record for this containerized worker
+#     exe="/opt/java/openjdk/bin/java" record for this containerized worker
 #     appears in the node-side log, proven live in this lane), so the keys
 #     tag this workload from the node vantage too
 #   - SYSCALL records with node-scoped signature keys

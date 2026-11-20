@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------
 # SBOB-EXAMPLES DEMO — scenario C (issue #14, M8) consumer workload profile:
-# a Java 17 service (openjdk:17-slim-based fixture) fronted by nginx, the
+# a Java 17 service (eclipse-temurin:17-jdk-based fixture) fronted by nginx, the
 # deployment shape Java2Shell (CVE-2026-114938) was demonstrated against
 # (Keycloak, Jenkins, Jira, Confluence, Artifactory, PingFederate — all
 # Java services). The CVE entry vector is invisible to SBoB by nature (no
@@ -25,10 +25,10 @@ metadata:
   annotations:
     sbob.spec-version: "0.0.4"
 spec:
-  imageID: docker.io/library/openjdk@sha256:b1c2d3e4f5a60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f01
+  imageID: docker.io/library/eclipse-temurin@sha256:b1c2d3e4f5a60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f01
   execs:
-  - path: /usr/local/openjdk-17/bin/java
-    args: ['/usr/local/openjdk-17/bin/java', '…']
+  - path: /opt/java/openjdk/bin/java
+    args: ['/opt/java/openjdk/bin/java', '…']
   opens:
   - flags: [O_RDONLY]
     path: /app/*

@@ -34,7 +34,7 @@ auditctl -l >/dev/null 2>&1 \
 
 echo "[entrypoint] 4. java service as uid 1000 (appuser)"
 setpriv --reuid 1000 --regid 1000 --clear-groups \
-  /usr/local/openjdk-17/bin/java -cp /app App &
+  /opt/java/openjdk/bin/java -cp /app App &
 
 echo "[entrypoint] 5. waiting for the service on 127.0.0.1:8080"
 for i in $(seq 1 60); do

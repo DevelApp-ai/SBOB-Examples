@@ -17,7 +17,7 @@ is drift **by definition**.
 
 | path | role |
 |---|---|
-| `workload/` | the Java 17 service fixture (openjdk:17-slim): Dockerfile, `src/App.java` + `src/Payload.java`, entrypoint, `www/index.html` |
+| `workload/` | the Java 17 service fixture (eclipse-temurin:17-jdk): Dockerfile, `src/App.java` + `src/Payload.java`, entrypoint, `www/index.html` |
 | `harness/run-behaviors.sh` | in-container orchestration: warm-up, benign window, drift window, capture, pre-checks |
 | `harness/capture-window.sh` | audit-log window extraction (corpus-shaped; uid-1000 attribution for node-scoped keys) |
 | `harness/check_capture.py` | runner-side capture parity + safety checker (loopback-only, benign purity, delta-7-analog shape) |

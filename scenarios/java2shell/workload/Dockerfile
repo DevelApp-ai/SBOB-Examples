@@ -12,7 +12,7 @@
 # AVX-512 VBMI), demonstrated pre-auth on default Keycloak, Jenkins, Jira,
 # Confluence, Artifactory, PingFederate (JFrog, Qualys, SecureLayer7).
 
-ARG JDK_IMAGE=openjdk:17-slim
+ARG JDK_IMAGE=eclipse-temurin:17-jdk
 FROM ${JDK_IMAGE}
 
 # socat         : stand-in listeners (declared config peer + loopback C2)
