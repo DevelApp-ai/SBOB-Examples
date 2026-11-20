@@ -19,6 +19,11 @@ release AND its corpus. A pure corpus diff would not have flagged 1.26.1 /
   `ERR_VERIFY_SIG_MISSING`; asserted, step A2, committed fabricated entry
   `scenarios/agent-framework/mock-registry/agent-framework-1.26.1.entry.yaml`
   kept schema-valid so the refusal is provenance-based, not parse-based).
+  A3 (manifest granted, corpus withheld) pins the honest complement,
+  observed on the first run: sbobforge does NOT refuse — it emits a
+  section-less EMPTY profile and exits 0. An empty profile is itself an
+  author-supplied claim of "no behavior"; the corpus blind spot (Findings)
+  starts exactly here.
 - **Gate B — the scored delta, on demo scaffolding only.** To show WHAT a
   diff would score, the lane extends the (reconstructed) 1.26.0 corpus with
   watermarked tests starting the attacker's hook modules and generates
@@ -70,6 +75,11 @@ the ACTUAL first-run verdicts per the expected-verdict discipline).
 
 - Baseline: sbobforge profile of the reconstructed clean corpus
   (`upstream/corpus-1.26.0/`), converted to the sbob registry dialect.
+  The reconstruction manifest declares the SUT's own shipped placeholders
+  (`pathPolicies` for the config/session state paths, `netPolicies` for the
+  declared memcache notify peer) so the baseline lifts the package's
+  declared behavior; the attacker extension's dynamic sites get no such
+  courtesy, which is the point.
 - Candidates: corpus + watermarked attacker-corpus extension
   (`upstream/tests-attack/v1.26.1/`, `v1.26.2/`) per version.
 - Delta reports are uploaded per run as lane artifacts and the observed

@@ -121,27 +121,33 @@ jobs:
           fi
           echo "[gate-a] A1 refusal recorded (exit $rc) — a diff that cannot run is an error verdict, never green"
 
-      - name: 'A3: manifest without corpus — record what the profiler does'
+      - name: 'A3: manifest without corpus — pinned: the tool emits an EMPTY profile'
         run: |
           set -euo pipefail
           trap 'rc=$?; echo "::error::A3 step failed at line $LINENO (exit $rc)"' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-a3 1.26.1 work/a3
           # the lane grants the tool its runtime prerequisites (the grammar
           # lock pins the environment's Minotaur + grammar versions; the
-          # attacker shipped none of this, but A3 isolates the NO-CORPUS
-          # refusal, not the missing-lock crash)
+          # attacker shipped none of this, but A3 isolates the no-corpus
+          # shape, not the missing-lock crash)
           (cd work/a3 && "$GITHUB_WORKSPACE/forge/out/sbobforge" lock . --update)
           set +e
           (cd work/a3 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) > work/a3.log 2>&1
           rc=$?
           set -e
           cat work/a3.log
-          # Expected: section-shadowed refusal (exit 2) — pinned after the
-          # first honest run. Record the observed exit code either way.
-          if [ "$rc" -ne 2 ]; then
-            echo "::warning::A3 observed exit $rc (recorded; update the pinned refusal in this step and docs/supply-chain-evidence.md)"
+          # Pinned from the first honest run (2026-11-20): sbobforge does NOT
+          # refuse a manifest granted without corpus. It emits an all-NULL,
+          # section-less profile and exits 0. That is the finding: an empty
+          # profile is an author-supplied claim of "no behavior" that only
+          # exists because nobody granted tests (docs/supply-chain-evidence.md
+          # records it in the gap map).
+          [ "$rc" -eq 0 ]
+          if grep -qE '^  (execs|opens|ingress|egress|capabilities|endpoints):' work/a3/sbob/*.sbob.yaml; then
+            echo "::error::A3 profile unexpectedly carries behavior sections"
+            exit 1
           fi
-          echo "[gate-a] A3 recorded exit $rc (manifest present, no corpus granted)"
+          echo "[gate-a] A3 pinned: exit 0, section-less profile (the no-corpus empty-contract blind spot)"
 
       - name: 'A2: unsigned candidate — sbobctl verify must refuse'
         run: |
@@ -165,7 +171,7 @@ jobs:
             echo "### Gate A — corpus/provenance fail-closed (verdict: REFUSED as designed)"
             echo ""
             echo "- A1 artifact-only generation: refused (non-zero exit — a diff that cannot run is an error verdict, never green)"
-            echo "- A3 generation manifest without corpus: exit code recorded in the lane log above (section-shadowed refusal expected)"
+            echo "- A3 generation manifest without corpus: pinned — exit 0, section-less EMPTY profile (the no-corpus blind spot: an empty profile is an author-supplied claim of no behavior)"
             echo "- A2 unsigned candidate entry: refused (ERR_VERIFY_SIG_MISSING → consumer refuses)"
             echo "- upstream re-check: microsoft/agent-framework recorded in the lane log (404 is the known finding, upstream/ATTRIBUTION.md)"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -198,7 +204,7 @@ jobs:
       - name: Generate + convert the 1.26.0 baseline from the corpus
         run: |
           set -euo pipefail
-          trap 'rc=$?; echo "::error::B0 failed at line $LINENO (exit $rc)"' ERR
+          trap 'rc=$?; echo "::error::B0 failed at line $LINENO (exit $rc)"; if ls work/b0/sbob/*.coverage.json >/dev/null 2>&1; then echo "B0 coverage report:"; head -c 4000 work/b0/sbob/*.coverage.json; fi' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.0 work/b0
           "$GITHUB_WORKSPACE/forge/out/sbobforge" lock work/b0 --update
           (cd work/b0 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b0.log
@@ -210,7 +216,7 @@ jobs:
       - name: 'B1: 1.26.1 — generate, convert, diff, record verdict'
         run: |
           set -euo pipefail
-          trap 'rc=$?; echo "::error::B1 failed at line $LINENO (exit $rc)"' ERR
+          trap 'rc=$?; echo "::error::B1 failed at line $LINENO (exit $rc)"; if ls work/b1/sbob/*.coverage.json >/dev/null 2>&1; then echo "B1 coverage report:"; head -c 4000 work/b1/sbob/*.coverage.json; fi' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.1 work/b1
           "$GITHUB_WORKSPACE/forge/out/sbobforge" lock work/b1 --update
           (cd work/b1 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b1.log
@@ -229,7 +235,7 @@ jobs:
       - name: 'B2: 1.26.2 — generate, convert, diff, record verdict'
         run: |
           set -euo pipefail
-          trap 'rc=$?; echo "::error::B2 failed at line $LINENO (exit $rc)"' ERR
+          trap 'rc=$?; echo "::error::B2 failed at line $LINENO (exit $rc)"; if ls work/b2/sbob/*.coverage.json >/dev/null 2>&1; then echo "B2 coverage report:"; head -c 4000 work/b2/sbob/*.coverage.json; fi' ERR
           python3 scenarios/agent-framework/harness/assemble.py gate-b 1.26.2 work/b2
           "$GITHUB_WORKSPACE/forge/out/sbobforge" lock work/b2 --update
           (cd work/b2 && "$GITHUB_WORKSPACE/forge/out/sbobforge" generate .) | tee work/b2.log
@@ -307,9 +313,9 @@ jobs:
           T0=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           echo "[gate-c] baseline window starts at $T0"
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
-            python3 scenarios/agent-framework/harness/canary-run.py \
-            --version-dir scenarios/agent-framework/package/v1.26.0 \
-            --out-dir work-canary/clean --starts 3 --expect-receipts-per-start 0
+            python3 "$GITHUB_WORKSPACE/scenarios/agent-framework/harness/canary-run.py" \
+            --version-dir "$GITHUB_WORKSPACE/scenarios/agent-framework/package/v1.26.0" \
+            --out-dir "$GITHUB_WORKSPACE/work-canary/clean" --starts 3 --expect-receipts-per-start 0
           sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
             "$CANARY_UID" "$T0" work-canary/clean.audit
           python3 scenarios/agent-framework/harness/normalize_auditd.py \
@@ -327,9 +333,9 @@ jobs:
           T1=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           echo "[gate-c] control window starts at $T1"
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
-            python3 scenarios/agent-framework/harness/canary-run.py \
-            --version-dir scenarios/agent-framework/package/v1.26.0 \
-            --out-dir work-canary/clean2 --starts 3 --expect-receipts-per-start 0
+            python3 "$GITHUB_WORKSPACE/scenarios/agent-framework/harness/canary-run.py" \
+            --version-dir "$GITHUB_WORKSPACE/scenarios/agent-framework/package/v1.26.0" \
+            --out-dir "$GITHUB_WORKSPACE/work-canary/clean2" --starts 3 --expect-receipts-per-start 0
           sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
             "$CANARY_UID" "$T1" work-canary/clean2.audit
           python3 scenarios/agent-framework/harness/normalize_auditd.py \
@@ -356,9 +362,9 @@ jobs:
           trap 'rc=$?; echo "::error::C1 canary failed at line $LINENO (exit $rc)"' ERR
           T2=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
-            python3 scenarios/agent-framework/harness/canary-run.py \
-            --version-dir scenarios/agent-framework/package/v1.26.1 \
-            --out-dir work-canary/mal1 --starts 3 --expect-receipts-per-start 1
+            python3 "$GITHUB_WORKSPACE/scenarios/agent-framework/harness/canary-run.py" \
+            --version-dir "$GITHUB_WORKSPACE/scenarios/agent-framework/package/v1.26.1" \
+            --out-dir "$GITHUB_WORKSPACE/work-canary/mal1" --starts 3 --expect-receipts-per-start 1
           sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
             "$CANARY_UID" "$T2" work-canary/mal1.audit
           python3 scenarios/agent-framework/harness/normalize_auditd.py \
@@ -385,9 +391,9 @@ jobs:
           trap 'rc=$?; echo "::error::C2 canary failed at line $LINENO (exit $rc)"' ERR
           T3=$(bash scenarios/agent-framework/harness/canary-observer.sh mark)
           sudo -u "$CANARY_USER" env PYTHONDONTWRITEBYTECODE=1 \
-            python3 scenarios/agent-framework/harness/canary-run.py \
-            --version-dir scenarios/agent-framework/package/v1.26.2 \
-            --out-dir work-canary/mal2 --starts 3 --expect-receipts-per-start 1
+            python3 "$GITHUB_WORKSPACE/scenarios/agent-framework/harness/canary-run.py" \
+            --version-dir "$GITHUB_WORKSPACE/scenarios/agent-framework/package/v1.26.2" \
+            --out-dir "$GITHUB_WORKSPACE/work-canary/mal2" --starts 3 --expect-receipts-per-start 1
           sudo bash scenarios/agent-framework/harness/canary-observer.sh capture \
             "$CANARY_UID" "$T3" work-canary/mal2.audit
           python3 scenarios/agent-framework/harness/normalize_auditd.py \

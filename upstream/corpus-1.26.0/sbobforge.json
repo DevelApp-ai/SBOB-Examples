@@ -7,8 +7,13 @@
   "architectures": ["amd64"],
   "sutGlobs": ["sut/**/*.py"],
   "testGlobs": ["tests/**/*.py"],
-  "pathPolicies": [],
-  "netPolicies": [],
+  "pathPolicies": [
+    { "id": "declared-config-read", "match": "path", "emit": "/var/lib/agent-framework/⋯" },
+    { "id": "declared-session-state", "match": "target", "emit": "/var/lib/agent-framework/sessions/⋯" }
+  ],
+  "netPolicies": [
+    { "id": "declared-memcache-notify", "match": "MEMCACHE", "emit": "127.0.0.1" }
+  ],
   "execPathPolicy": {},
   "allowParseError": []
 }
