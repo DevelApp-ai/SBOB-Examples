@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# SBOB-EXAMPLES DEMO — the consumer workload profile (issue #4, M3 layer 2).
+#
+# This is NOT an incident reconstruction: it models the CONTRACT of the
+# consumer who installed agent-framework — a Python CI runner container
+# (python:3.12-slim-shaped) that runs the package's test suite on the
+# runner. It is the runtime baseline the malicious 1.26.1/1.26.2 releases
+# drift against (docs/agent-framework/incident-map.md: behavior -> SBoB
+# section mapping).
+#
+# Honest contract decisions (TDS §9.4 applies here too):
+#   - site-packages reads are declared as a whole: an interpreter start
+#     imports whatever is installed. Path-level opens cannot see module
+#     semantics, so the .pth-triggered _telemetry import is INVISIBLE to
+#     the opens section — the reconstruction's credential-file opens,
+#     /proc/*/environ sweep and undeclared exfil connect are what drift.
+#   - credential paths ( ~/.azure/, .npmrc, .git-credentials, runner
+#     _temp tokens) are deliberately NOT declared: a test runner has no
+#     business reading them. Every stealer credential read is drift.
+#   - the exfil endpoint (loopback sink standing in for webhook[.]site)
+#     is NOT a declared peer: the stealer's single POST must drift here
+#     (and fail closed under M4 enforcement).
+#   - only the checked-out repo dir (/home/runner/work/demo/*) is a
+#     declared open path: the runner's _temp token files live OUTSIDE it,
+#     so the 1.26.2 runner-path token read (gha_token) is drift too. A
+#     wider workspace glob would silently declare the token tree in.
+#   - the declared DNS resolver is the only DNS path: resolving the exfil
+#     domain rides the declared resolver and alerts NOTHING (the TDS §9.3
+#     DNS-blind limitation) — the CONNECT to the resolved sink IP is the
+#     drift signal that fires.
+# ---------------------------------------------------------------------------
+apiVersion: sbob.k8sstormcenter.io/v1
+kind: SoftwareBillOfBehavior
+metadata:
+  name: python-ci-runner
+  namespace: ci-tier
+  annotations:
+    sbob.spec-version: "0.0.4"
+spec:
+  imageID: docker.io/library/python@sha256:8f3d1a9e2f5c0b7d8a1e6f4c2b9d0a3e7c5f1d8a4b6c2e9f0d3a7b1c5e8f2d4
+  execs:
+  - path: /usr/local/bin/python3.12
+    args: ['/usr/local/bin/python3.12', '⋯⋯']
+  opens:
+  - flags: [O_RDONLY]
+    path: /usr/local/lib/python3.12/site-packages/*
+  - flags: [O_RDONLY, O_WRONLY, O_CREAT, O_APPEND]
+    path: /home/runner/work/demo/*
+  - flags: [O_RDONLY]
+    path: /etc/resolv.conf
+  egress:
+  - identifier: cluster-dns
+    type: internal
+    ipAddresses: [10.96.0.10/32]
+    ports: [{name: UDP-53, protocol: UDP, port: 53}]
+  - identifier: internal-pypi-mirror
+    type: internal
+    ipAddresses: [10.96.100.20/32]
+    ports: [{name: TCP-443, protocol: TCP, port: 443}]

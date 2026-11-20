@@ -1,0 +1,84 @@
+# SBOB-EXAMPLES DEMO WATERMARK — synthetic auditd corpus, scenario A (M3).
+#
+# Sustained-repetition corpus: 8 rounds of the drift families (an environ
+# sweep read, a credential-file read, the exfil connect) within 120s in ONE
+# wazuh-logtest session. Expected on the 8th round:
+#   100222  sustained open drift   (8 undeclared opens in 120s)
+#   100232  sustained connect drift (8 undeclared peers in 120s)
+# Honest label: the REAL stealer connects exactly ONCE (single-POST semantics,
+# no retry), so 100232 is a capability proof on synthetic repetition, not an
+# incident replay; 100222 is realistic the other way (60-80 credential files
+# under the collector cap). 100212 (sustained exec) and 100209 (sustained
+# sensitive) are asserted ABSENT: no exec drift and no watchlist path in this
+# scenario (see drift.audit honest absences).
+type=SYSCALL msg=audit(1700000301.010:3201): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000301.010:3201): item=0 name="/proc/391/environ" inode=5101 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000301.010:3202): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000301.010:3202): item=0 name="/home/runner/.azure/azureProfile.json" inode=5101 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000301.015:3203): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000301.015:3203): saddr=02001FA37F0000010000000000000000
+
+type=SYSCALL msg=audit(1700000302.020:3204): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000302.020:3204): item=0 name="/proc/392/environ" inode=5102 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000302.020:3205): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000302.020:3205): item=0 name="/home/runner/.azure/azureProfile.json" inode=5102 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000302.025:3206): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000302.025:3206): saddr=02001FA37F0000010000000000000000
+
+type=SYSCALL msg=audit(1700000303.030:3207): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000303.030:3207): item=0 name="/proc/393/environ" inode=5103 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000303.030:3208): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000303.030:3208): item=0 name="/home/runner/.azure/azureProfile.json" inode=5103 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000303.035:3209): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000303.035:3209): saddr=02001FA37F0000010000000000000000
+
+type=SYSCALL msg=audit(1700000304.040:3210): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000304.040:3210): item=0 name="/proc/394/environ" inode=5104 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000304.040:3211): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000304.040:3211): item=0 name="/home/runner/.azure/azureProfile.json" inode=5104 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000304.045:3212): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000304.045:3212): saddr=02001FA37F0000010000000000000000
+
+type=SYSCALL msg=audit(1700000305.050:3213): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000305.050:3213): item=0 name="/proc/395/environ" inode=5105 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000305.050:3214): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000305.050:3214): item=0 name="/home/runner/.azure/azureProfile.json" inode=5105 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000305.055:3215): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000305.055:3215): saddr=02001FA37F0000010000000000000000
+
+type=SYSCALL msg=audit(1700000306.060:3216): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000306.060:3216): item=0 name="/proc/396/environ" inode=5106 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000306.060:3217): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000306.060:3217): item=0 name="/home/runner/.azure/azureProfile.json" inode=5106 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000306.065:3218): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000306.065:3218): saddr=02001FA37F0000010000000000000000
+
+type=SYSCALL msg=audit(1700000307.070:3219): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000307.070:3219): item=0 name="/proc/397/environ" inode=5107 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000307.070:3220): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000307.070:3220): item=0 name="/home/runner/.azure/azureProfile.json" inode=5107 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000307.075:3221): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000307.075:3221): saddr=02001FA37F0000010000000000000000
+
+type=SYSCALL msg=audit(1700000308.080:3222): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000308.080:3222): item=0 name="/proc/398/environ" inode=5108 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000308.080:3223): arch=c000003e syscall=257 success=yes exit=7 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000308.080:3223): item=0 name="/home/runner/.azure/azureProfile.json" inode=5108 dev=fd:01 mode=0100600 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000308.085:3224): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2201 pid=2202 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000308.085:3224): saddr=02001FA37F0000010000000000000000

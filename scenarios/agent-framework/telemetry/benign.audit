@@ -1,0 +1,31 @@
+# SBOB-EXAMPLES DEMO WATERMARK — synthetic auditd corpus, scenario A (M3,
+# issue #4). Not captured telemetry: the reconstruction's observer model
+# (Mode A exe-scoped keys from the generated audit fragment), with synthetic
+# inode/pid/timestamp fields.
+#
+# Benign window: the clean 1.26.0 release runs on the consumer's CI runner
+# (workload python-ci-runner, sbobs/workload/). Every event is inside the
+# declared contract: interpreter exec, site-packages import reads, repo
+# checkout read/write, resolv.conf, DNS resolver + internal PyPI mirror
+# connects. Expected: ZERO drift alerts (level-0 base-chain matches only).
+
+type=SYSCALL msg=audit(1700000100.100:6001): arch=c000003e syscall=59 success=yes exit=0 items=2 ppid=1 pid=2101 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-exec-python-ci-runner"
+type=EXECVE msg=audit(1700000100.100:6001): argc=3 a0="/usr/local/bin/python3.12" a1="-m" a2="pytest"
+
+type=SYSCALL msg=audit(1700000100.200:6002): arch=c000003e syscall=257 success=yes exit=3 items=1 ppid=2101 pid=2102 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000100.200:6002): item=0 name="/usr/local/lib/python3.12/site-packages/agent_framework/__init__.py" inode=3311 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000100.300:6003): arch=c000003e syscall=257 success=yes exit=4 items=1 ppid=2101 pid=2102 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000100.300:6003): item=0 name="/home/runner/work/demo/tests/test_agent_framework.py" inode=4102 dev=fd:01 mode=0100644 ouid=1001 ogid=1001 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000100.400:6004): arch=c000003e syscall=257 success=yes exit=5 items=1 ppid=2101 pid=2102 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000100.400:6004): item=0 name="/home/runner/work/demo/.pytest_cache/v/cache/lastfailed" inode=4103 dev=fd:01 mode=0100644 ouid=1001 ogid=1001 rdev=00:00 nametype=CREATE cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000100.500:6005): arch=c000003e syscall=257 success=yes exit=6 items=1 ppid=2101 pid=2102 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-open-python-ci-runner"
+type=PATH msg=audit(1700000100.500:6005): item=0 name="/etc/resolv.conf" inode=14437 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1700000100.600:6006): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2101 pid=2102 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000100.600:6006): saddr=020000350A60000A0000000000000000
+
+type=SYSCALL msg=audit(1700000100.700:6007): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=2101 pid=2102 auid=4294967295 uid=1001 gid=1001 euid=1001 suid=1001 fsuid=1001 egid=1001 sgid=1001 fsgid=1001 tty=(none) ses=4294967295 comm="python3.12" exe="/usr/local/bin/python3.12" subj=unconfined key="sbob-connect-python-ci-runner"
+type=SOCKADDR msg=audit(1700000100.700:6007): saddr=020001BB0A6064140000000000000000

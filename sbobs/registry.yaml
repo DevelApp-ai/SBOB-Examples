@@ -1,0 +1,9 @@
+# sbobctl workload slot registry (TDS 6.1). Slots are allocated once and never reused.
+# SBOB-Examples-maintained registry: this demo's consumer profiles live in their
+# own registry namespace, separate from Software-Bill-of-Behavior's registry
+# (a real consumer commits the profile in their own repo). Slot 2 chosen: slot
+# 0 collides with the stock wazuh 4.14.6 example rule 100001 in local_rules.xml
+# (1000xx band), slot 1 is php-fpm's band in the upstream registry — using a
+# distinct band keeps every evidence-doc rule id unambiguous.
+workloads:
+  python-ci-runner: {slot: 2}
