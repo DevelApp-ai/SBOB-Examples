@@ -82,7 +82,21 @@ nothing arrived.
 | enforced 1.26.1 / 1.26.2 | present, uid 1500 | 0 new receipts, REJECT counter +1, exit 0 (.pth exception swallowed, faithful reconstruction) | the hijack's POST is denied; nothing reaches the sink |
 | clean 1.26.0 | present, uid 1500 | 0 new receipts, REJECT delta 0, exit 0 | no false positive: a legitimate interpreter start under enforcement is untouched |
 
-<!-- STAMP: recorded from the lane's actual green run(s): pending first run -->
+<!-- STAMP: recorded from the lane's actual green run(s):
+- verdicts recorded on run 44800715326 (public ::notice annotations, 40s
+  job): all 8 legs PASS —
+  contrast-1.26.1 / contrast-1.26.2 (1 new receipt each: M1 parity, exit 0,
+  guard quiet); declared-udp + declared-tcp (declared peers admitted, no
+  REJECT hit); undeclared-udp (REJECT +1); enforced-1.26.1 / enforced-1.26.2
+  (0 new receipts, REJECT counter hit, interpreter exit 0 — the swallowed
+  refusal, recorded as the pinned AF_EXPECT_INTERPRETER_RC); clean-1.26.0
+  (0 receipts, REJECT delta 0, exit 0: no false positive).
+- drift gate green on the same run: sbobs/enforce/{k8s-node,linux}
+  regenerate byte-identical from pin 4bf2eb1d2413de388c10a0c7de38026e07e46fd7
+  + sbobs/enforce-state.yaml (ladder + audit-record validation accepted).
+- artifacts uploaded: enforce-block-evidence (verdicts.json, receipts.jsonl,
+  enforce-demo.log, drift diffs, regenerate logs, manifests).
+-->
 
 ## Honest limitations
 
