@@ -92,11 +92,19 @@ the ACTUAL first-run verdicts per the expected-verdict discipline).
   alone may keep the delta below advisory. Whatever the actual verdict, the
   finding is recorded here rather than papered over.
 
-<!-- STAMP: first green Gate B verdicts recorded here after review:
+<!-- STAMP: recorded from green run 44657815995 (verdict notices in the
+     Gate B job annotations; pinned in the lane via EXPECT_B1/B2_VERDICT):
 | version | verdict | score | run |
 |---------|---------|-------|-----|
-| 1.26.1  | (record on first green run) | | |
-| 1.26.2  | (record on first green run) | | |
+| 1.26.1  | clean | 0 | https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44657815995 |
+| 1.26.2  | clean | 0 | https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44657815995 |
+
+The clean-scored Gate B IS the finding, not a lane failure: the attacker
+extension's harvesting sites are all dynamic (`os.path.join`-built opens,
+request-object POST) and quarantine without declared placeholder policies,
+so the corpus-derived static delta is zero. The kernel canary (Gate C)
+sees the same versions score 21 and 23. Corpus-derived profiles are
+author-supplied claims; Gate B is the demonstration.
 -->
 
 ## Gate C — canary design and honest scope rules
@@ -135,12 +143,18 @@ the ACTUAL first-run verdicts per the expected-verdict discipline).
   credential-harvesting stealer diffing at zero would mean the pipeline is
   broken, not that the stealer is benign.
 
-<!-- STAMP: first green Gate C verdicts recorded here after review:
+<!-- STAMP: recorded from green run 44657815995 (verdict notices in the
+     Gate C job annotations; pinned in the lane alongside the honesty floor):
 | version | verdict | score | run |
 |---------|---------|-------|-----|
-| 1.26.1 canary | (record on first green run) | | |
-| 1.26.2 canary | (record on first green run) | | |
-| control      | clean, Δ=0 (asserted)      | | |
+| 1.26.1 canary | advisory | 21 | https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44657815995 |
+| 1.26.2 canary | advisory | 23 | https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44657815995 |
+| control      | clean, Δ=0 (asserted) | 0 | https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44657815995 |
+
+Advisory, not mandatory, is itself the quantified finding: a
+kernel-observed credential-harvesting stealer reading dozens of credential
+files and environ rows lands BELOW the Δ25 mandatory threshold because
+credential-path reads cost +1 each on the ladder (finding 2).
 -->
 
 ## Findings — what scenario A exposes about SBoB (the gap map)

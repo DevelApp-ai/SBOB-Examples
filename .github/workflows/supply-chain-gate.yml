@@ -65,6 +65,13 @@ env:
   FORGE_PIN: 64ee36adad015b3ee623ffe255a2bc02ae44ddd8
   CANARY_USER: af-canary
   SINK_PORT: "8099"
+  # expected-verdict discipline: pinned from the first honest green run's
+  # recorded values (run 44657815995, verdict notices in the job
+  # annotations; docs/supply-chain-evidence.md STAMP sections)
+  EXPECT_B1_VERDICT: clean
+  EXPECT_B2_VERDICT: clean
+  EXPECT_C1_VERDICT: advisory
+  EXPECT_C2_VERDICT: advisory
 
 jobs:
   gate-a:
@@ -453,13 +460,20 @@ jobs:
           # the first run's ACTUAL verdicts (steps above) alongside
           # docs/supply-chain-evidence.md.
           python3 - <<'PY'
-          import json
+          import json, os
           for name in ("mal1", "mal2"):
               r = json.load(open(f"work-evidence/{name}-report.json"))
               score = r.get("score", 0)
               assert score >= 10, f"{name} scored {score} — below the advisory threshold; the honest floor is missing: {r}"
               print(f"[gate-c] honesty floor PASS: {name} scored {score}")
               print(f"::notice::Gate C: honesty floor PASS: {name} scored {score}")
+          # expected-verdict discipline: the canary verdicts are pinned from
+          # the first honest green run, like Gate B above
+          for name, exp in (("c1", os.environ["EXPECT_C1_VERDICT"]),
+                            ("c2", os.environ["EXPECT_C2_VERDICT"])):
+              got = open(f"work-evidence/{name}-verdict.txt").read().strip()
+              assert got == exp, f"{name} verdict '{got}' != pinned '{exp}'"
+              print(f"[gate-c] {name} verdict pinned: {got}")
           PY
 
       - name: Observer teardown (disposable node hygiene)
