@@ -1,0 +1,58 @@
+# sbobctl Phase-3 rollout state — workload python-ci-runner (TDS 14, M4 / issue #5).
+#
+# Monitor -> Audit -> Enforce transition, one deliberate rung at a time:
+#
+#   TDS volume / M1-M2  the profile ships detection only: the workload runs
+#                       in Monitor — nothing denied, behavior observed via
+#                       the supply-chain gates.
+#   M3 (issue #4)      the runtime-detection lane replayed a full audit
+#                       window on the drift bundle (green runs 44789125134 +
+#                       44789707792: benign corpus -> ZERO drift alerts; the
+#                       malicious corpora fired 100221/100231 and, under
+#                       sustained repetition, 100222/100232).
+#   M4 (this file)     ONLY the egress section advances to enforce, and only
+#                       after the audit record below attests an incident-free
+#                       window (TDS 14.6: no enforcement without a clean
+#                       audit window; ERR_ENFORCE_NOT_AUDITED otherwise).
+#
+# Deliberate, honest scope of this rung:
+#   - egress      enforce. The hijack's damage step is one undeclared HTTPS
+#                 POST; egress allowlist enforcement fails it closed.
+#   - ingress     stays at the audit default. The workload takes no inbound
+#                 connections (empty allowlist = deny-all-inbound WHEN
+#                 enforced), so there is no transition to demonstrate yet.
+#   - execs/opens stay at the audit default. The stealer runs INSIDE the
+#                 declared interpreter and the M3 lane already recorded the
+#                 honest absences (100211 exec drift, 100201 cloud-credential
+#                 overlay); promoting them is future work, not this rung.
+#
+# Generator finding (recorded, not papered over): the k8s NetworkPolicy
+# artifact labels itself mode: "audit" while its egress allowlist carries the
+# enforce policyTypes: [Egress] deny-all-undeclared semantics. The mode
+# annotation flips to "enforce" only when BOTH egress and ingress sections
+# are enforce (src/codegen/networkpolicy.ts), so an egress-only workload can
+# never reach an "enforce"-labeled artifact — even when egress genuinely
+# advances. The M4 lane therefore enforces the artifact's egress section
+# semantics (translated to a uid-scoped iptables allowlist, see
+# scenarios/agent-framework/harness/enforce_orchestrator.py) and documents
+# this annotation-level gap in docs/agent-framework/enforce-evidence.md.
+workload: python-ci-runner
+
+# Default rung for every section except egress: audit (detection + alerting,
+# nothing denied). The ladder monitor < audit < enforce is enforced by
+# sbobctl (ERR_ENFORCE_LADDER when a section skips rungs).
+state: audit
+
+sections:
+  # Only egress advances to enforce in this milestone (issue #5).
+  egress: enforce
+
+# TDS 14.6 audit attestation: the clean window required before egress may
+# enforce. The M3 runtime-detection lane's benign replay (clean 1.26.0 on
+# the runner, zero drift alerts across the full bundle) is the incident-free
+# audit evidence for this section; see docs/agent-framework/runtime-evidence.md.
+auditRecords:
+  egress:
+    started: "2026-11-20"
+    windowDays: 1
+    incidents: 0

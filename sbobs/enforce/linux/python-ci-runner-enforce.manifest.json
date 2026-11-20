@@ -1,0 +1,38 @@
+{
+  "workload": "python-ci-runner",
+  "namespace": "ci-tier",
+  "sbobVersion": "0.0.4",
+  "imageID": "docker.io/library/python@sha256:8f3d1a9e2f5c0b7d8a1e6f4c2b9d0a3e7c5f1d8a4b6c2e9f0d3a7b1c5e8f2d4",
+  "target": "linux",
+  "state": {
+    "default": "audit",
+    "sections": {
+      "egress": "enforce"
+    },
+    "enforcing": [
+      "egress"
+    ]
+  },
+  "auditRecords": {
+    "egress": {
+      "started": "2026-11-20",
+      "windowDays": 1,
+      "incidents": 0
+    }
+  },
+  "artifacts": [
+    "wazuh/agent-conf/sbob/python-ci-runner-ar.xml",
+    "wazuh/agent-conf/sbob/python-ci-runner-enforce-localfile.xml",
+    "wazuh/rules/sbob/100200_python-ci-runner_enforce.xml",
+    "wazuh/manager/sbob/python-ci-runner-enforce.md",
+    "wazuh/active-response/bin/sbob-python-ci-runner-process-kill.sh",
+    "enforcement/sbob/python-ci-runner/systemd/python-ci-runner-seccomp.conf",
+    "enforcement/sbob/python-ci-runner/apparmor/python-ci-runner.profile"
+  ],
+  "notes": [
+    "active responses: disabled by default; enabled per section in enforce state only (TDS 14.6)",
+    "seccomp (systemd): audit SystemCallFilter deny-list drop-in",
+    "apparmor: execs=audit opens=audit — complain (audit)"
+  ],
+  "labValidation": "pending"
+}

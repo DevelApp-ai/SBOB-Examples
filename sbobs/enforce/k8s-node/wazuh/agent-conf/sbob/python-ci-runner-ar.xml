@@ -1,0 +1,18 @@
+<!-- sbobctl generated active responses — workload: python-ci-runner (TDS 14.1, M7)
+     state file default: audit; disabled flags flip per-section (enforce only) -->
+<active-response>
+  <!-- section execs: audit state — disabled (Monitor/Audit — detection only) -->
+  <command>sbob-python-ci-runner-process-kill</command>
+  <location>local</location>
+  <rules_id>100211</rules_id>
+  <timeout>60</timeout>
+  <disabled>yes</disabled>
+</active-response>
+<active-response>
+  <!-- section egress: enforce state — ACTIVE (kill-switch: flip this to yes without regenerating) -->
+  <command>firewall-drop</command>
+  <location>local</location>
+  <rules_id>100231</rules_id>
+  <timeout>60</timeout>
+  <disabled>no</disabled>
+</active-response>
