@@ -76,12 +76,26 @@ behavior (4 total).
 
 ## Run evidence
 
-<!-- STAMP: record the first fully green php-enforce run here on merge, with
-     the run URL, in the same pattern as docs/supply-chain-evidence.md:
-     | leg | verdict | run |
-     (local pre-push proof: both targets regenerate byte-identical from pin
-     4bf2eb1d + sbobs/enforce-state-php-fpm.yaml; ladder guard verified:
-     enforce without audit record -> ERR_ENFORCE_NOT_AUDITED) -->
+<!-- STAMP: recorded from the lane's fully green run
+     https://github.com/DevelApp-ai/SBOB-Examples/actions/runs/44821530534
+     (php-enforce, M7-VERDICT overall=PASS):
+| leg | verdict | detail (from verdicts.json) |
+|-----|---------|------------------------------|
+| benign-unaffected | PASS | declared read + resolver read + memcache egress (ACCEPT) all work; uid-33 write probe on the declared sessions path: WRITE-OK — no false positive |
+| b1-shell-exec-denied | PASS | `/bin/sh` not executable (masked); `/var/tmp/.pwned` absent; PHP warning "Unable to execute" |
+| b2-webshell-write-denied | PASS | `/var/tmp/.php2shell.php` absent; PHP warning "Read-only file system" |
+| b3-c2-connect-fails-closed | PASS | response "b3 C2 connect failed: Connection refused"; iptables REJECT counter delta +1 |
+| b4-memfd-eperm | PASS | response "b4 memfd_create failed"; uid-33 seccomp probe: EPERM |
+| enforcement-telemetry-recorded | PASS | 4 sbob-enforce.log entries (process-kill x3, firewall-drop x1), rule-100211 shape |
+| loopback-only | PASS | all non-allowlisted egress REJECTed; C2 stand-in listener was up (block proven at the policy layer) |
+
+Local pre-push proof: both targets regenerate byte-identical from pin
+4bf2eb1d + sbobs/enforce-state-php-fpm.yaml; ladder guard verified: enforce
+without an audit record -> ERR_ENFORCE_NOT_AUDITED. Lane iterations recorded:
+44811466793 (iptables missing from image), 44815371862/44818792898 (worker
+fastcgi responses are uid-33 OUTPUT packets — fixed with the conntrack
+ESTABLISHED,RELATED ACCEPT mirroring stateful k8s NP semantics),
+44819834236 (verdict read via docker exec cat, not docker cp over tmpfs). -->
 
 Lane artifacts on every run: `php-enforce-evidence` (drift diffs, demo log,
 verdicts.json, sbob-enforce.log, manifests).
