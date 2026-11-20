@@ -1,0 +1,47 @@
+# ---------------------------------------------------------------------------
+# SBOB-EXAMPLES DEMO — scenario C (issue #14, M8) consumer workload profile:
+# a Java 17 service (eclipse-temurin:17-jdk-based fixture) fronted by nginx, the
+# deployment shape Java2Shell (CVE-2026-114938) was demonstrated against
+# (Keycloak, Jenkins, Jira, Confluence, Artifactory, PingFederate — all
+# Java services). The CVE entry vector is invisible to SBoB by nature (no
+# release ever shipped); the declared contract below is what post-exploit
+# behavior drifts against.
+#
+# Contract decisions (same honesty discipline as scenario B's php-fpm):
+#   - execs: the JVM only. A Java service never shells out in benign
+#     operation, so any /bin/sh execve from the JVM is drift by definition.
+#   - opens: app dir read (/app/*), one declared write dir
+#     (/var/lib/app-data/*), resolver read. A JSP dropped under the webapp
+#     root is an UNDECLARED write — drift.
+#   - egress: the declared internal config-service peer only. A C2 callback
+#     to any other peer is drift (the loopback stand-in is never declared).
+#   - ingress: the declared nginx frontend CIDR on the service port.
+# ---------------------------------------------------------------------------
+apiVersion: sbob.k8sstormcenter.io/v1
+kind: SoftwareBillOfBehavior
+metadata:
+  name: java-service
+  namespace: app-tier
+  annotations:
+    sbob.spec-version: "0.0.4"
+spec:
+  imageID: docker.io/library/eclipse-temurin@sha256:b1c2d3e4f5a60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f01
+  execs:
+  - path: /opt/java/openjdk/bin/java
+    args: ['/opt/java/openjdk/bin/java', '…']
+  opens:
+  - flags: [O_RDONLY]
+    path: /app/*
+  - flags: [O_RDONLY, O_WRONLY, O_CREAT]
+    path: /var/lib/app-data/*
+  - flags: [O_RDONLY]
+    path: /etc/resolv.conf
+  egress:
+  - identifier: internal-config-service
+    type: internal
+    ipAddresses: [10.96.100.30/32]
+    ports: [{name: TCP-8443, protocol: TCP, port: 8443}]
+  ingress:
+  - identifier: nginx-frontends
+    ipAddresses: [10.244.0.0/16]
+    ports: [{name: TCP-8080, protocol: TCP, port: 8080}]

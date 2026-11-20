@@ -1,0 +1,344 @@
+name: java-detection
+
+# Scenario C (Java2Shell, CVE-2026-114938) M8 lane: live post-exploit behavior
+# vs SBoB detection (issue #14). Same lab pattern as php-detection.yml on the
+# pinned SBoB toolchain (the Wazuh 4.14.6 transpiler fixes landed in
+# Software-Bill-of-Behavior #44; this lane's dependency):
+#
+#   1. the java-service workload SBoB (sbobs/workload/java-service.yaml,
+#      slot 3, band 1003xx) transpiles from the SHA-pinned toolchain
+#   2. the four post-RCE behaviors run FOR REAL inside the disposable
+#      openjdk:17 fixture, loopback-only stand-ins (TDS §4)
+#   3. the capture is faithful and safe (parity checker); behaviors 1-3 are
+#      proven by real side effects — the exe-scoped audit keys cannot tag a
+#      containerized JVM observed node-side (the scenario-C analog of
+#      scenario B's delta 7); b4 (defineClass, fully in-JVM) is the
+#      expected-silent leg and MUST leave no drift record
+#   4. the recorded harness corpus replays through the manager: benign silent,
+#      drift fires 100311/100321/100331, and the sustained children
+#      100312/100322/100332 fire via the session-based API replay (8 in 120s)
+#   5. the LIVE-captured windows replay with the honest node-side shape:
+#      zero drift alerts (exe-scoped keys cannot tag; nothing node-scoped
+#      fires) — recorded, not papered over
+#
+# Observer model: identical to scenario B — auditd ON THE NODE, node audit log
+# bind-mounted read-only into the workload container (production SBoB
+# deployment model). The lane fails loudly with diagnostics; never stays red
+# (TDS §7).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "scenarios/java2shell/**"
+      - "sbobs/workload/java-service.yaml"
+      - "sbobs/registry.yaml"
+      - ".github/workflows/java-detection.yml"
+      - "docs/java2shell/detection-evidence.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # SHA-pinned toolchain (TDS §7/§8; includes the Wazuh 4.14.6 fixes, #44)
+  SBOB_REPO: DevelApp-ai/Software-Bill-of-Behavior
+  SBOB_PIN: 4bf2eb1d2413de388c10a0c7de38026e07e46fd7
+  # scenario C workload contract (this repo) + slot registry (slot 3)
+  SBOB_FILE: sbobs/workload/java-service.yaml
+  SBOB_REGISTRY: sbobs/registry.yaml
+  WAZUH_IMAGE: wazuh/wazuh-manager:4.14.6
+  WAZUH_CONTAINER: sbob-wazuh-manager-java
+  WAZUH_API: https://localhost:55000
+  WAZUH_API_USER: wazuh
+  WAZUH_API_PASS: wazuh
+  WORKLOAD_CONTAINER: sbob-java-workload
+  WORKLOAD_IMAGE: sbob-java2shell:ci
+
+jobs:
+  java-detection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout SBOB-Examples
+        uses: actions/checkout@v4
+
+      - name: Checkout the SHA-pinned SBoB toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SBOB_REPO }}
+          ref: ${{ env.SBOB_PIN }}
+          path: sbob-repo
+
+      - name: Node 22 (native type stripping, zero npm install)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Start the node-side audit observer (auditd on the CI node)
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq auditd >/dev/null 2>&1 || true
+          sudo service auditd start >/dev/null 2>&1 || sudo auditd || true
+          sleep 1
+          sudo auditctl -l >/dev/null 2>&1 || { echo "FAIL: node auditctl not functional"; exit 1; }
+          echo "OK: node-side auditd is the observer"
+
+      - name: Transpile the java-service bundle (SHA-pinned SBoB toolchain)
+        run: |
+          set -o pipefail
+          cd sbob-repo
+          node src/cli.ts transpile --sbob "$GITHUB_WORKSPACE/$SBOB_FILE" \
+            --out "$GITHUB_WORKSPACE/dist/java" \
+            --target linux \
+            --registry "$GITHUB_WORKSPACE/$SBOB_REGISTRY" --skip-signature-verify \
+            2>&1 | tee transpile-java.log
+          cd "$GITHUB_WORKSPACE"
+          find dist/java -type f | sort
+          test -f dist/java/wazuh/audit/sbob/java-service.rules \
+            || { echo "FAIL: transpiled audit fragment missing"; exit 1; }
+          echo "--- generated audit fragment ---"
+          cat dist/java/wazuh/audit/sbob/java-service.rules
+          echo "--- rule ids ---"
+          grep -o 'rule  id="[0-9]*"' dist/java/wazuh/rules/sbob/100300_java-service_linux.xml
+
+      - name: Build the java-service workload image
+        run: |
+          set -o pipefail
+          docker build \
+            -f scenarios/java2shell/workload/Dockerfile \
+            -t "$WORKLOAD_IMAGE" \
+            scenarios/java2shell 2>&1 | tee docker-build.log
+
+      - name: "Run the workload container (NET_ADMIN + node audit log mounted read-only)"
+        run: |
+          docker run --cap-add=NET_ADMIN \
+            -v /var/log/audit:/host-audit:ro \
+            -d --name "$WORKLOAD_CONTAINER" "$WORKLOAD_IMAGE"
+          for i in $(seq 1 60); do
+            if docker exec "$WORKLOAD_CONTAINER" \
+                 curl -s --max-time 3 -o /dev/null http://127.0.0.1:8080/benign 2>/dev/null; then
+              echo "workload ready (java-service answering on 8080)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "FAIL: workload container did not become ready"
+          docker logs "$WORKLOAD_CONTAINER" 2>&1 | tail -40 || true
+          exit 1
+
+      - name: Load the SBoB audit fragment into the node kernel
+        run: |
+          sudo auditctl -D 2>/dev/null || true
+          # the kernel resolves exe= filters against the node filesystem at
+          # rule-add time: the parent directory must exist (ENOENT otherwise;
+          # the exe-scoped keys still cannot tag the containerized JVM —
+          # overlay2 paths, the delta-7-analog — this only satisfies the loader)
+          sudo mkdir -p /opt/java/openjdk/bin
+          sudo auditctl -R dist/java/wazuh/audit/sbob/java-service.rules
+          sudo auditctl -l
+          # emission probe: the node-scoped memfd signature rule has no exe
+          # filter, so a memfd_create on the runner MUST be tagged sbob-memfd
+          before=$(sudo grep -c 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null || echo 0)
+          python3 - <<'PYEOF'
+          import ctypes
+          libc = ctypes.CDLL(None, use_errno=True)
+          fd = libc.memfd_create(b"sbob-node-probe", 0)
+          print("probe memfd_create fd:", fd)
+          PYEOF
+          sleep 2
+          after=$(sudo grep -c 'key="sbob-memfd"' /var/log/audit/audit.log 2>/dev/null || echo 0)
+          echo "sbob-memfd record count: before=$before after=$after"
+          [ "${after:-0}" -gt "${before:-0}" ] \
+            && echo "OK: node-side sbob emission works" \
+            || echo "WARN: probe memfd_create NOT logged node-side"
+
+      - name: Run the benign + post-exploit flows and capture the windows
+        run: |
+          set -o pipefail
+          rc=0
+          docker exec -e AUDIT_LOG=/host-audit/audit.log "$WORKLOAD_CONTAINER" \
+            bash /opt/harness/run-behaviors.sh 2>&1 | tee workload-run.log || rc=$?
+          mkdir -p telemetry-run
+          docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/benign.audit" telemetry-run/benign.audit || true
+          docker cp "$WORKLOAD_CONTAINER:/opt/telemetry/drift.audit" telemetry-run/drift.audit || true
+          sudo grep -E "^(type=SYSCALL|type=EXECVE|type=PATH|type=SOCKADDR)" /var/log/audit/audit.log \
+            | tail -200 > telemetry-run/audit-tail.log || true
+          echo "--- benign window ---"; cat telemetry-run/benign.audit 2>/dev/null || true
+          echo "--- drift window ---"; cat telemetry-run/drift.audit 2>/dev/null || true
+          exit $rc
+
+      - name: "Capture parity + safety check (loopback-only, benign purity, delta-7-analog shape)"
+        run: |
+          set -o pipefail
+          python3 scenarios/java2shell/harness/check_capture.py \
+            telemetry-run/benign.audit telemetry-run/drift.audit 2>&1 | tee parity-check.log
+
+      - name: Upload telemetry artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java2shell-telemetry
+          if-no-files-found: warn
+          path: |
+            transpile-java.log
+            docker-build.log
+            workload-run.log
+            parity-check.log
+            telemetry-run/benign.audit
+            telemetry-run/drift.audit
+            telemetry-run/audit-tail.log
+            corpus-benign-gate.log
+            corpus-drift-gate.log
+            live-benign-gate.log
+            live-drift-gate.log
+
+      # ---- detection stack: the proven lab-validate pattern, pinned SBoB ----
+
+      - name: Start the disposable Wazuh manager (4.14.6)
+        run: |
+          docker pull "$WAZUH_IMAGE"
+          docker run -d --name "$WAZUH_CONTAINER" \
+            -p 1514:1514 -p 1515:1515 -p 55000:55000 \
+            "$WAZUH_IMAGE"
+          for i in $(seq 1 96); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "$WAZUH_API" || true)
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "manager API up (HTTP $code)"; exit 0; fi
+            sleep 5
+          done
+          echo "manager API did not come up"
+          docker logs --tail 60 "$WAZUH_CONTAINER" || true
+          exit 1
+
+      - name: Install the bundle + declare the CDB lists in ossec.conf
+        run: |
+          sh sbob-repo/scripts/sync-manager.sh dist/java --root staging
+          find staging -type f | sort
+          if [ -d staging/rules ]; then
+            docker cp staging/rules/. "$WAZUH_CONTAINER:/var/ossec/etc/rules/"
+          fi
+          if [ -d staging/decoders ]; then
+            docker cp staging/decoders/. "$WAZUH_CONTAINER:/var/ossec/etc/decoders/"
+          fi
+          if [ -d staging/lists ]; then
+            docker cp staging/lists/. "$WAZUH_CONTAINER:/var/ossec/etc/lists/"
+          fi
+          docker cp "$WAZUH_CONTAINER:/var/ossec/etc/ossec.conf" ossec.conf
+          : > sbob-lists.snippet
+          if [ -d staging/lists/sbob ]; then
+            (cd staging/lists && find sbob -type f | sort) | while read -r rel; do
+              printf '    <list>etc/lists/%s</list>\n' "$rel"
+            done >> sbob-lists.snippet
+          fi
+          if [ -s sbob-lists.snippet ]; then
+            awk '
+              BEGIN { while ((getline l < "sbob-lists.snippet") > 0) ins = ins l ORS }
+              !done && /<\/ruleset>/ { printf "%s", ins; done = 1 }
+              { print }
+            ' ossec.conf > ossec.conf.new
+            mv ossec.conf.new ossec.conf
+            echo "declared lists:" && grep "<list>etc/lists/sbob" ossec.conf
+          fi
+          docker cp ossec.conf "$WAZUH_CONTAINER:/var/ossec/etc/ossec.conf"
+
+      - name: Restart the manager and wait for the API (bundle must load cleanly)
+        run: |
+          docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control restart 2>&1 | tee restart.log \
+            || echo "wazuh-control restart rc=$? (probe below is the gate)"
+          code=000
+          for i in $(seq 1 60); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "$WAZUH_API" || true)
+            if [ "$code" != "000" ] && [ -n "$code" ]; then echo "manager API up after restart (HTTP $code)"; break; fi
+            sleep 5
+          done
+          if [ "$code" = "000" ] || [ -z "$code" ]; then
+            echo "manager API did not come back after the bundle install"
+            exit 1
+          fi
+          if docker exec "$WAZUH_CONTAINER" /var/ossec/bin/wazuh-control status 2>/dev/null | grep -q "analysisd.*running"; then
+            echo "analysisd running with the bundle loaded"
+            docker exec "$WAZUH_CONTAINER" sh -c '/var/ossec/bin/wazuh-analysisd -t' 2>&1 | tail -3 || true
+            exit 0
+          fi
+          echo "analysisd is NOT running — the manager rejected the ruleset"
+          docker exec "$WAZUH_CONTAINER" sh -c 'tail -30 /var/ossec/logs/ossec.log' || true
+          exit 1
+
+      - name: "Corpus gate — benign silent (recorded harness corpus, 8x one session)"
+        run: |
+          set -o pipefail
+          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+            node scenarios/java2shell/harness/logtest-replay.ts \
+            --api "$WAZUH_API" \
+            --file scenarios/java2shell/telemetry/java-benign.audit \
+            --mode benign --repeats 8 2>&1 | tee corpus-benign-gate.log
+
+      - name: "Corpus gate — drift fires every mapped rule; sustained children via the session replay"
+        run: |
+          set -o pipefail
+          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+            node scenarios/java2shell/harness/logtest-replay.ts \
+            --api "$WAZUH_API" \
+            --file scenarios/java2shell/telemetry/java-drift.audit \
+            --mode drift \
+            --expect 100311,100321,100331 \
+            --expect-absent 100301,100302,100360,100361,100362,100363 \
+            --expect-sustained 100312,100322,100332 \
+            --repeats 8 2>&1 | tee corpus-drift-gate.log
+
+      - name: "Live gate — benign telemetry silent (declared behavior only, zero alerts)"
+        run: |
+          set -o pipefail
+          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+            node scenarios/java2shell/harness/logtest-replay.ts \
+            --api "$WAZUH_API" \
+            --file telemetry-run/benign.audit --mode benign --repeats 8 2>&1 | tee live-benign-gate.log
+
+      # Live drift window: the exe-scoped keys cannot tag the containerized JVM
+      # node-side (scenario-C delta-7 analog) and b4 (defineClass) is
+      # expected-silent, so the honest live shape is ZERO drift alerts —
+      # asserted here as a benign-mode replay; the mapped rules' firing is proven
+      # on the recorded corpus by the gate above.
+      - name: "Live gate — drift window fires nothing live (delta-7-analog, recorded); rules proven on corpus"
+        run: |
+          set -o pipefail
+          SBOB_WAZUH_API_USER="$WAZUH_API_USER" SBOB_WAZUH_API_PASS="$WAZUH_API_PASS" \
+            node scenarios/java2shell/harness/logtest-replay.ts \
+            --api "$WAZUH_API" \
+            --file telemetry-run/drift.audit --mode benign --repeats 8 2>&1 | tee live-drift-gate.log
+
+      - name: Verdict summary
+        if: always()
+        run: |
+          {
+            echo "## java-detection verdict (scenario C M8)"
+            echo "| gate | verdict |"
+            echo "|---|---|---|"
+            for f in transpile-java.log workload-run.log parity-check.log corpus-benign-gate.log corpus-drift-gate.log live-benign-gate.log live-drift-gate.log; do
+              if [ ! -f "$f" ]; then v="(not reached)";
+              elif grep -qE "^FAIL:|^ERROR:" "$f"; then v="**FAIL** (see $f)";
+              else v="PASS (see $f)"; fi
+              echo "| $f | $v |"
+            done
+            echo "SBoB toolchain pin: \`${SBOB_PIN}\` ; manager: \`$WAZUH_IMAGE\` ; workload: \`$SBOB_FILE\` (slot 3)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Failure diagnostics (step summary)
+        if: failure()
+        run: |
+          set +e
+          {
+            echo "## java-detection diagnostics"
+            echo '```'
+            docker ps -a 2>&1 | sed -n 1,20p || true
+            docker logs --tail 60 "$WORKLOAD_CONTAINER" 2>&1 || true
+            sudo auditctl -l 2>&1 || true
+            sudo tail -40 /var/log/audit/audit.log 2>&1 || true
+            docker exec "$WAZUH_CONTAINER" sh -c 'tail -40 /var/ossec/logs/ossec.log' 2>&1 || true
+            for f in workload-run.log parity-check.log corpus-benign-gate.log corpus-drift-gate.log live-benign-gate.log live-drift-gate.log; do
+              if [ -f "$f" ]; then echo "### $f (tail 40)"; tail -40 "$f"; fi
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          echo "::error title=fail-lines::$(grep -hE '^FAIL:|^ERROR:' workload-run.log parity-check.log corpus-benign-gate.log corpus-drift-gate.log live-benign-gate.log live-drift-gate.log 2>/dev/null | head -8 | tr '\n' '~' | head -c 800)"

@@ -1,0 +1,27 @@
+# Drift events: each violates the java-service SBoB (slot 3) and MUST fire the
+# mapped rule. These are the Java2Shell (CVE-2026-114938) post-RCE behaviors:
+# the point of the scenario is that the SBoB catches the BEHAVIOR after the
+# JIT-level RCE lands, regardless of the entry vector.
+#
+#   execve /bin/sh -c ...                -> 100311 (SBoB drift: process ...)
+#        post-RCE shell spawn from the JVM — execs[] declares only the JVM
+#   open /var/www/webapp/shell.jsp       -> 100321 (SBoB drift: file open ...)
+#        the dropped JSP webshell — /var/www/webapp is not in opens[] (the
+#        only declared write path is /var/lib/app-data/*)
+#   connect 127.0.0.1:4445 (C2 stand-in) -> 100331 (SBoB drift: connect ...)
+#        the C2 callback — egress[] declares only 10.96.100.30:8443
+#
+# The fourth post-RCE behavior — defineClass staging fully in-JVM — is
+# DELIBERATELY ABSENT from this corpus: it performs no exec, no undeclared
+# open and no connect, so it is expected-silent (the committed finding in
+# docs/java2shell/detection-evidence.md). The moment the payload touches the
+# OS (exec, file, socket), drift fires.
+
+type=SYSCALL msg=audit(1699999990.100:2001): arch=c000003e syscall=59 success=yes exit=0 items=2 ppid=2002 pid=3001 auid=4294967295 uid=1000 gid=1000 euid=1000 suid=1000 fsuid=1000 egid=1000 sgid=1000 fsgid=1000 tty=(none) ses=4294967295 comm="sh" exe="/bin/sh" subj=unconfined key="sbob-exec-java-service"
+type=EXECVE msg=audit(1699999990.100:2001): argc=3 a0="/bin/sh" a1="-c" a2="id > /var/tmp/.pwned"
+
+type=SYSCALL msg=audit(1699999991.200:2002): arch=c000003e syscall=257 success=yes exit=6 items=1 ppid=3001 pid=3002 auid=4294967295 uid=1000 gid=1000 euid=1000 suid=1000 fsuid=1000 egid=1000 sgid=1000 fsgid=1000 tty=(none) ses=4294967295 comm="java" exe="/opt/java/openjdk/bin/java" subj=unconfined key="sbob-open-java-service"
+type=PATH msg=audit(1699999991.200:2002): item=0 name="/var/www/webapp/shell.jsp" inode=13130 dev=fd:01 mode=0100644 ouid=1000 ogid=1000 rdev=00:00 nametype=CREATE cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0
+
+type=SYSCALL msg=audit(1699999992.300:2003): arch=c000003e syscall=42 success=yes exit=0 items=1 ppid=3002 pid=3003 auid=4294967295 uid=1000 gid=1000 euid=1000 suid=1000 fsuid=1000 egid=1000 sgid=1000 fsgid=1000 tty=(none) ses=4294967295 comm="java" exe="/opt/java/openjdk/bin/java" subj=unconfined key="sbob-connect-java-service"
+type=SOCKADDR msg=audit(1699999992.300:2003): saddr=0200115D7F000001

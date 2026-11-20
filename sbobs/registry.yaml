@@ -7,3 +7,5 @@
 # distinct band keeps every evidence-doc rule id unambiguous.
 workloads:
   python-ci-runner: {slot: 2}
+  # scenario C (issue #14, M8): java-service gets slot 3 -> rule band 1003xx
+  java-service: {slot: 3}
