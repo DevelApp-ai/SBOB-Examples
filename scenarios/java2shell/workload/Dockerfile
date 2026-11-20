@@ -38,9 +38,10 @@ RUN useradd -u 1000 -m appuser \
 
 # the service + the in-JVM payload class (b4 reads /app/Payload.class through
 # the DECLARED /app read, then defineClass — no OS-level syscall)
-COPY src/App.java src/Payload.java /build/
+# build context is the scenario root (scenarios/java2shell), like scenario B
+COPY workload/src/App.java workload/src/Payload.java /build/
 RUN javac -d /app /build/App.java /build/Payload.java
-COPY www/index.html /app/index.html
+COPY workload/www/index.html /app/index.html
 RUN chown -R 1000:1000 /app
 
 # harness orchestration (run via docker exec once the CI lane has loaded the
