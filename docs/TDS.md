@@ -196,38 +196,58 @@ a real attacker never grants the corpus extension. This gate exists to make
 the scored delta visible, not to claim the attacker cooperates.
 
 **Gate C — canary profiling (identification without attacker
-cooperation).** Run each version in a disposable canary container with
-auditd/sbob telemetry and seeded canary credentials, exfil pointed at the
-loopback sink. The `.pth` hook fires on the FIRST Python start: no test
-reachability required, no corpus to game. `sbobctl profile` (M9) derives a
-candidate SBoB from the observed telemetry window; its reviewed delta scores
-through the M8 diff gate against the 1.26.0 baseline: **MANDATORY** (new
-opens on credential paths and `/proc/*/environ`, new egress peer, new exec
-surface). The attacker can game a test corpus; they cannot game a
-kernel-level observer by hiding code from tests. This is the supply-chain
-layer's actual identification of the stealer, pre-install.
+cooperation).** Run each version in a disposable canary observed by
+auditd with seeded canary credentials, exfil pointed at the loopback sink.
+The `.pth` hook fires on the FIRST Python start: no test reachability
+required, no corpus to game. `sbobctl profile` (M9) derives a candidate
+SBoB from the observed telemetry window; its reviewed delta scores
+through the M8 diff gate against the clean canary's own derived contract.
+The attacker can game a test corpus; they cannot game a kernel-level
+observer by hiding code from tests. This is the supply-chain layer's
+actual identification of the stealer, pre-install. As-built deviations
+from this draft, recorded honestly: (1) the canary runs NODE-SIDE under a
+dedicated disposable uid (`af-canary`) with uid-scoped auditd rules, not
+in a container — the M6 lane proved in-container auditd EPERMs on
+GitHub-hosted runners; (2) each canary runs THREE starts, because the
+profiler's fidelity ladder classifies single-occurrence behaviors as
+one-off → investigate → not declared; (3) the Gate C baseline is the
+clean canary's own derived candidate (comparing static-lift vs dynamic
+observation would conflate representation differences with behavior
+change; Gate B owns the static side).
 
-- **Baseline** for all gates: the 1.26.0 profile generated from
+- **Baseline** for all gates: planned as the profile generated from
   microsoft/agent-framework's own committed pytest corpus, vendored under
-  `upstream/corpus-1.26.0/` from tag `python-1.26.0` (MIT; attribution and
-  license preserved). First lane run resolves + records the tag SHA in
-  `upstream/ATTRIBUTION.md`; afterwards the lane pins the SHA and
-  byte-verifies the vendored copy (the .github template-sync pattern).
-- Lane `supply-chain-gate.yml`, three jobs + control: A asserts
-  fail-closed generation on the artifact-only candidate; B asserts
-  `sbobctl diff` old=1.26.0 new=1.26.1 and new=1.26.2 both **MANDATORY,
-  exit 1**; C asserts the canary-derived candidate diffs **MANDATORY**
-  against the baseline; control asserts clean canary + clean diff =
-  **verdict none, exit 0**.
-- Delta reports and canary provenance sidecars committed under `docs/` as
-  evidence.
+  `upstream/corpus-1.26.0/` from tag `python-1.26.0`. **Recorded finding
+  (2026-11-19): that upstream no longer resolves (404; post-hijack
+  takedown).** `upstream/corpus-1.26.0/` is therefore a demo-authored
+  watermarked RECONSTRUCTION — decision, license statement and re-check
+  promise recorded in `upstream/ATTRIBUTION.md`; the lane re-resolves the
+  upstream every run and re-opens the vendoring decision if it ever
+  returns. The 404 is itself the layer's honest point: publisher-side
+  corpus availability cannot be assumed.
+- Lane `supply-chain-gate.yml`, three jobs + control (control folded into
+  gate-c as labeled steps to avoid cross-job artifact plumbing): A asserts
+  fail-closed generation on the artifact-only candidate plus the
+  unsigned-entry refusal (`sbobctl verify` → `ERR_VERIFY_SIG_MISSING`);
+  B generates baseline + candidates on the reconstruction and records the
+  ACTUAL diff verdicts, pinned after the first honest run (expected-verdict
+  discipline; static-lift quarantine under-scoring is an accepted possible
+  outcome, recorded not hidden); C runs the canaries, asserts the control
+  Δ0/exit 0, and pins the ACTUAL malicious canary verdicts after the first
+  run — the honest expectation: ADVISORY or MANDATORY depending on how the
+  ladder weights credential-read mass (the finding is the point,
+  `docs/supply-chain-evidence.md` records it). An honesty floor asserts
+  the malicious diffs score at least advisory either way.
+- Delta reports and canary provenance sidecars carried as lane artifacts
+  and committed under `docs/agent-framework/m2/` after the first green
+  run review; the run URL stamped in `docs/supply-chain-evidence.md`.
 - **Accept:** lane green asserting expected verdicts per gate (no
   permanently red lane); `docs/supply-chain-evidence.md` maps each delta
   row to the scoring ladder classes (capabilities +5, exec outside
   namespace +4, external DNS +3, widened wildcard +2, removed +1) and states
-  the corpus blind spot in plain words; vendored corpus byte-verified
-  against the pinned upstream SHA; ATTRIBUTION.md carries tag + SHA +
-  license.
+  the corpus blind spot in plain words; `upstream/ATTRIBUTION.md` carries
+  the upstream-404 record, the reconstruction decision and the re-check
+  promise.
 
 ### M3: runtime detection (layer 2)
 - Commit the consumer workload profile (a Python CI runner using the
@@ -323,12 +343,18 @@ behavior against detection AND enforcement in a disposable container** — the
 
 - SBOB-Forge action (generate): binary mode `binary: true` +
   `binary-version: 1.0.0` (cosign-verified, fail-closed) if the release assets
-  are attached; source mode (.NET 8 + `nuget-auth-token`) otherwise.
+  are attached; source mode (.NET 8 + `NUGET_AUTH_TOKEN` = GITHUB_TOKEN +
+  `packages: read`, since the release has no binary assets and
+  DevelApp.Minotaur 1.5.25 lives on the DevelApp-ai Packages feed) otherwise;
+  the M2 lane uses source mode at pinned SHA
+  `64ee36adad015b3ee623ffe255a2bc02ae44ddd8`.
 - Software-Bill-of-Behavior `sbobctl` action (validate/diff/transpile/enforce),
-  Node 22, zero npm install.
+  Node 22, zero npm install; the M2 lane pins
+  `4bf2eb1d2413de388c10a0c7de38026e07e46fd7`.
 - Wazuh manager container pinned (4.14.x lane pattern) for M3.
-- Upstream corpus: microsoft/agent-framework tag `python-1.26.0`; commit SHA
-  resolved and recorded by the first M2 lane run, then pinned.
+- Upstream corpus: **recorded 404** (microsoft/agent-framework taken down
+  post-hijack); `upstream/corpus-1.26.0/` is the watermarked reconstruction,
+  decision + re-check promise in `upstream/ATTRIBUTION.md`.
 
 ## 9. Honest limitations (stated in the demo itself)
 
@@ -355,6 +381,13 @@ behavior against detection AND enforcement in a disposable container** — the
    profiling of the artifact's actual behavior), never on attacker-supplied
    tests. Runtime detection and enforcement carry the same principle to the
    host: the kernel sees what the corpus never did.
+5. **The ladder under-weights credential-read mass (scenario-A
+   finding):** a new read-only open costs +1 per path, so a stealer that
+   reads dozens of credential files but opens one new loopback peer
+   scores Δ ≈ n_paths + 4 — advisory long before mandatory. The M2 lane
+   records the actual judgement numbers and the proposed
+   credential-path ladder class (+5, capability-class) as the ask on the
+   SBoB roadmap (`docs/supply-chain-evidence.md`).
 
 ## 10. References
 

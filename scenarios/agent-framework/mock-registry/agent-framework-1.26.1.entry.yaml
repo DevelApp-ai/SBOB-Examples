@@ -1,0 +1,27 @@
+# SBOB-EXAMPLES DEMO WATERMARK — fabricated candidate registry entry (issue #3).
+# The Gate A2 companion refusal: an attacker (or a compromised publisher)
+# could push THIS candidate entry into a registry slot claiming to be the
+# signed profile for agent-framework 1.26.1 — a consumer pinning signed
+# registry profiles then runs `sbobctl verify` on it and MUST refuse: there
+# is no .sig sidecar, no .bundle Rekor entry, no signing identity. The lane
+# (supply-chain-gate.yml, job gate-a, step A2) asserts the refusal fires.
+# The entry itself is schema-valid on purpose: the refusal must come from
+# the PROVENANCE, never from a parse error.
+apiVersion: sbob.k8sstormcenter.io/v1
+kind: SoftwareBillOfBehavior
+metadata:
+  name: agent-framework
+  namespace: develapp-examples
+spec:
+  imageID: pypi://agent-framework/1.26.1
+  execs:
+  - path: /usr/bin/python3
+  opens:
+  - path: /var/lib/agent-framework/config.json
+    flags: [O_RDONLY]
+  egress:
+  - ipAddresses:
+    - 127.0.0.1
+    ports:
+    - protocol: TCP
+      port: 11211

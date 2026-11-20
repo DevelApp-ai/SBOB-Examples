@@ -1,0 +1,16 @@
+{
+  "packageType": "pypi",
+  "packageName": "agent-framework",
+  "packageVersion": "1.26.0",
+  "namespace": "develapp-examples",
+  "targetOs": "linux",
+  "architectures": ["amd64"],
+  "sutGlobs": ["sut/**/*.py"],
+  "testGlobs": ["tests/**/*.py"],
+  "pathPolicies": [],
+  "netPolicies": [
+    { "id": "declared-memcache-notify", "match": "MEMCACHE", "emit": "127.0.0.1" }
+  ],
+  "execPathPolicy": {},
+  "allowParseError": []
+}
